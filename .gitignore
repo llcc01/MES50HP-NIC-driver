@@ -1,0 +1,12 @@
+.vscode
+*.cmd
+*.ko
+*.o
+*.mod
+*.mod.o
+*.mod.c
+*.symvers
+*.markers
+*.unsigned
+*.order
+*~
