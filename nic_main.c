@@ -1,6 +1,5 @@
 #include "nic.h"
 
-
 #define NO_PCI
 
 #define PCI_VENDOR_ID_MY 0x11cc
@@ -79,8 +78,8 @@ static const struct net_device_ops nic_netdev_ops = {
     .ndo_change_mtu = nic_change_mtu,
     .ndo_eth_ioctl = nic_ioctl,
     .ndo_validate_addr = eth_validate_addr,
-    .ndo_vlan_rx_add_vid = nic_vlan_rx_add_vid,
-    .ndo_vlan_rx_kill_vid = nic_vlan_rx_kill_vid,
+// .ndo_vlan_rx_add_vid = nic_vlan_rx_add_vid,
+// .ndo_vlan_rx_kill_vid = nic_vlan_rx_kill_vid,
 #ifdef CONFIG_NET_POLL_CONTROLLER
     .ndo_poll_controller = nic_netpoll,
 #endif
@@ -128,10 +127,11 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 
   // net device
   for (int i = 0; i < 2; i++) {
-    struct nic_adapter *adapter = netdev_priv(netdevs[i]);
+    struct nic_adapter *adapter;
     netdevs[i] = alloc_etherdev(sizeof(struct nic_adapter));
+    adapter = netdev_priv(netdevs[i]);
     if (!netdevs[i]) {
-      printk(KERN_ERR "alloc_etherdev %u failed\n", i);
+      printk(KERN_ERR "nic alloc_etherdev %u failed\n", i);
       err = -ENOMEM;
       goto err_alloc_etherdev;
     }
@@ -144,25 +144,41 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 #endif
   }
 
-  // io
-
-  // dma
-
-  // ops
-  for (int i = 0; i < 2; i++) {
-    netdevs[i]->netdev_ops = &nic_netdev_ops;
-    nic_set_ethtool_ops(netdevs[i]);
-  }
-
 #ifndef NO_PCI
   SET_NETDEV_DEV(netdev, &pdev->dev);
   pci_set_drvdata(pdev, netdev);
 #else
   memmove(test_drvdata, netdevs, sizeof(netdevs));
 #endif
+  printk(KERN_INFO "nic alloc netdev\n");
 
+  // io
+  printk(KERN_INFO "nic pci_enable_device\n");
+
+  // dma
+  printk(KERN_INFO "nic pci_set_dma_mask\n");
+
+  // ops
+  for (int i = 0; i < 2; i++) {
+    netdevs[i]->netdev_ops = &nic_netdev_ops;
+    nic_set_ethtool_ops(netdevs[i]);
+  }
+  printk(KERN_INFO "nic set ops\n");
+
+  for (int i = 0; i < 2; i++) {
+    err = register_netdev(netdevs[i]);
+    if (err) {
+      printk(KERN_ERR "register_netdev %u failed\n", i);
+      goto err_register;
+    }
+    netif_carrier_off(netdevs[i]);
+  }
+  printk(KERN_INFO "register netdev\n");
+
+  printk(KERN_INFO "nic_probe done\n");
   return 0;
 
+err_register:
 err_alloc_etherdev:
 
   return err;
@@ -179,7 +195,7 @@ static void nic_remove(struct pci_dev *pdev) {
 
   // net device
   for (int i = 0; i < 2; i++) {
-    // unregister_netdev(netdevs[i]);
+    unregister_netdev(netdevs[i]);
     free_netdev(netdevs[i]);
   }
 }
