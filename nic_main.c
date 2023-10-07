@@ -21,7 +21,7 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent);
 static void nic_remove(struct pci_dev *pdev);
 static int __maybe_unused nic_suspend(struct device *dev);
 static int __maybe_unused nic_resume(struct device *dev);
-static void nic_shutdown(struct pci_dev *pdev);
+// static void nic_shutdown(struct pci_dev *pdev);
 static pci_ers_result_t nic_io_error_detected(struct pci_dev *pdev,
                                               pci_channel_state_t state);
 static pci_ers_result_t nic_io_slot_reset(struct pci_dev *pdev);
@@ -213,7 +213,7 @@ static int __maybe_unused nic_suspend(struct device *dev) { return 0; }
 
 static int __maybe_unused nic_resume(struct device *dev) { return 0; }
 
-static void nic_shutdown(struct pci_dev *pdev) {}
+// static void nic_shutdown(struct pci_dev *pdev) {}
 
 static pci_ers_result_t nic_io_error_detected(struct pci_dev *pdev,
                                               pci_channel_state_t state) {
@@ -241,8 +241,14 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
   tx_ring->size = sizeof(struct nic_tx_desc) * tx_ring->count;
   tx_ring->size = ALIGN(tx_ring->size, 4096);
 
+#ifndef NO_PCI
   tx_ring->desc_va = dma_alloc_coherent(&adapter->pdev->dev, tx_ring->size,
                                         &adapter->tx_ring.desc_pa, GFP_KERNEL);
+#else
+  tx_ring->desc_va = vmalloc(tx_ring->size);
+  tx_ring->desc_pa = (dma_addr_t)NULL;
+#endif
+
   if (!tx_ring->desc_va) {
     PRINT_ERR("dma_alloc_coherent tx_ring failed\n");
     err = -ENOMEM;
@@ -254,17 +260,29 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
   rx_ring->size = sizeof(struct nic_rx_frame) * rx_ring->count;
   rx_ring->size = ALIGN(rx_ring->size, 4096);
 
+#ifndef NO_PCI
   rx_ring->va = dma_alloc_coherent(&adapter->pdev->dev, rx_ring->size,
                                    &adapter->rx_ring.pa, GFP_KERNEL);
+#else
+  rx_ring->va = vmalloc(rx_ring->size);
+  rx_ring->pa = (dma_addr_t)NULL;
+#endif
+
   if (!rx_ring->va) {
     PRINT_ERR("dma_alloc_coherent rx_ring failed\n");
     err = -ENOMEM;
     goto err_rx;
   }
 
+#ifndef NO_PCI
   rx_ring->head_va =
       dma_alloc_coherent(&adapter->pdev->dev, sizeof(*(rx_ring->head_va)),
                          &adapter->rx_ring.head_pa, GFP_KERNEL);
+#else
+  rx_ring->head_va = vmalloc(sizeof(*(rx_ring->head_va)));
+  rx_ring->head_pa = (dma_addr_t)NULL;
+#endif
+
   if (!rx_ring->head_va) {
     PRINT_ERR("dma_alloc_coherent rx_ring head failed\n");
     err = -ENOMEM;
@@ -276,11 +294,23 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
 
   return 0;
 err_rx_head_tail:
+
+#ifndef NO_PCI
   dma_free_coherent(&adapter->pdev->dev, rx_ring->size, rx_ring->va,
                     rx_ring->pa);
+#else
+  vfree(rx_ring->va);
+#endif
+
 err_rx:
+
+#ifndef NO_PCI
   dma_free_coherent(&adapter->pdev->dev, tx_ring->size, tx_ring->desc_va,
                     tx_ring->desc_pa);
+#else
+  vfree(tx_ring->desc_va);
+#endif
+
 err_tx:
   return err;
 }
@@ -288,12 +318,20 @@ err_tx:
 static int nic_free_queues(struct nic_adapter *adapter) {
   struct nic_tx_ring *tx_ring = &adapter->tx_ring;
   struct nic_rx_ring *rx_ring = &adapter->rx_ring;
+
+#ifndef NO_PCI
   dma_free_coherent(&adapter->pdev->dev, tx_ring->size, tx_ring->desc_va,
                     tx_ring->desc_pa);
   dma_free_coherent(&adapter->pdev->dev, rx_ring->size, rx_ring->va,
                     rx_ring->pa);
   dma_free_coherent(&adapter->pdev->dev, sizeof(*(rx_ring->head_va)),
                     rx_ring->head_va, rx_ring->head_pa);
+#else
+  vfree(tx_ring->desc_va);
+  vfree(rx_ring->va);
+  vfree(rx_ring->head_va);
+#endif
+
   tx_ring->count = 0;
   tx_ring->size = 0;
   rx_ring->count = 0;
@@ -454,15 +492,26 @@ static struct sk_buff *nic_receive_skb(struct nic_adapter *adapter) {
   return skb;
 }
 
-static void nic_set_rx_mode(struct net_device *netdev) {}
+static void nic_set_rx_mode(struct net_device *netdev) {
+  PRINT_INFO("nic_set_rx_mode\n");
+}
 
-static int nic_set_mac(struct net_device *netdev, void *p) { return 0; }
+static int nic_set_mac(struct net_device *netdev, void *p) {
+  PRINT_INFO("nic_set_mac\n");
+  return 0;
+}
 
-static void nic_tx_timeout(struct net_device *dev, unsigned int txqueue) {}
+static void nic_tx_timeout(struct net_device *dev, unsigned int txqueue) {
+  PRINT_INFO("nic_tx_timeout\n");
+}
 
-static int nic_change_mtu(struct net_device *netdev, int new_mtu) { return 0; }
+static int nic_change_mtu(struct net_device *netdev, int new_mtu) {
+  PRINT_INFO("nic_change_mtu\n");
+  return 0;
+}
 
 static int nic_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd) {
+  PRINT_INFO("nic_ioctl\n");
   return 0;
 }
 
@@ -476,14 +525,16 @@ static int nic_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd) {
 //   return 0;
 // }
 
-static void nic_netpoll(struct net_device *netdev) {}
+static void nic_netpoll(struct net_device *netdev) {
+  PRINT_INFO("nic_netpoll\n");
+}
 
 static int nic_poll(struct napi_struct *napi, int budget) {
   struct nic_adapter *adapter = container_of(napi, struct nic_adapter, napi);
   struct nic_rx_ring *rx_ring;
   struct sk_buff *skb;
   int work_done = 0;
-  PRINT_INFO("nic_netpoll\n");
+  PRINT_INFO("nic_poll\n");
 
   // TODO
   // int work_to_do = min(*budget, netdev->quota);
