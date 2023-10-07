@@ -1,6 +1,5 @@
 #include "nic.h"
-
-#define NO_PCI
+#include <linux/dma-mapping.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("lc");
@@ -56,6 +55,7 @@ int nic_open(struct net_device *netdev);
 int nic_close(struct net_device *netdev);
 static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
                                   struct net_device *netdev);
+static struct sk_buff *nic_receive_skb(struct nic_adapter *adapter);
 static void nic_set_rx_mode(struct net_device *netdev);
 static int nic_set_mac(struct net_device *netdev, void *p);
 static void nic_tx_timeout(struct net_device *dev, unsigned int txqueue);
@@ -66,6 +66,7 @@ static int nic_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd);
 // static int nic_vlan_rx_kill_vid(struct net_device *netdev, __be16 proto,
 //                                 u16 vid);
 static void nic_netpoll(struct net_device *netdev);
+static int nic_poll(struct napi_struct *napi, int budget);
 static netdev_features_t nic_fix_features(struct net_device *netdev,
                                           netdev_features_t features);
 static int nic_set_features(struct net_device *netdev,
@@ -92,7 +93,7 @@ static const struct net_device_ops nic_netdev_ops = {
 
 #ifdef NO_PCI
 
-static struct net_device *test_drvdata[4];
+static struct nic_adapter *test_drvdata[4];
 
 #endif
 
@@ -123,27 +124,28 @@ static void __exit nic_exit_module(void) {
 module_exit(nic_exit_module);
 
 static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
-  struct net_device *netdevs[IF_NUM];
+  struct net_device *netdev[IF_NUM];
+  struct nic_adapter *adapter[IF_NUM];
   int err = 0;
 
   PRINT_INFO("nic_probe\n");
 
   // net device
   for (int i = 0; i < IF_NUM; i++) {
-    struct nic_adapter *adapter;
-    netdevs[i] = alloc_etherdev(sizeof(struct nic_adapter));
-    adapter = netdev_priv(netdevs[i]);
-    if (!netdevs[i]) {
+    netdev[i] = alloc_etherdev(sizeof(struct nic_adapter));
+    adapter[i] = netdev_priv(netdev[i]);
+    if (!netdev[i]) {
       PRINT_ERR("alloc_etherdev %u failed\n", i);
       err = -ENOMEM;
       goto err_alloc_etherdev;
     }
 
-    adapter->netdev = netdevs[i];
+    adapter[i]->netdev = netdev[i];
+    adapter[i]->if_id = i;
 #ifndef NO_PCI
     adapter->pdev = pdev;
 #else
-    adapter->pdev = NULL;
+    adapter[i]->pdev = NULL;
 #endif
   }
 
@@ -151,7 +153,7 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
   SET_NETDEV_DEV(netdev, &pdev->dev);
   pci_set_drvdata(pdev, netdev);
 #else
-  memmove(test_drvdata, netdevs, sizeof(netdevs));
+  memmove(test_drvdata, netdev, sizeof(netdev));
 #endif
   PRINT_INFO("alloc netdev\n");
 
@@ -163,18 +165,22 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 
   // ops
   for (int i = 0; i < IF_NUM; i++) {
-    netdevs[i]->netdev_ops = &nic_netdev_ops;
-    nic_set_ethtool_ops(netdevs[i]);
+    // char mac_addr[ETH_ALEN] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    netdev[i]->netdev_ops = &nic_netdev_ops;
+    nic_set_ethtool_ops(netdev[i]);
+    netif_napi_add(netdev[i], &adapter[i]->napi, nic_poll);
+    // eth_hw_addr_set(netdev[i], adapter[i]->mac_addr);
+    eth_hw_addr_random(netdev[i]);
   }
   PRINT_INFO("set ops\n");
 
   for (int i = 0; i < IF_NUM; i++) {
-    err = register_netdev(netdevs[i]);
+    err = register_netdev(netdev[i]);
     if (err) {
       PRINT_ERR("register_netdev %u failed\n", i);
       goto err_register;
     }
-    netif_carrier_off(netdevs[i]);
+    netif_carrier_off(netdev[i]);
   }
   PRINT_INFO("register netdev\n");
 
@@ -188,18 +194,18 @@ err_alloc_etherdev:
 }
 
 static void nic_remove(struct pci_dev *pdev) {
-  struct net_device *netdevs[IF_NUM];
+  struct net_device *netdev[IF_NUM];
 #ifndef NO_PCI
   netdev = pci_get_drvdata(pdev);
 #else
-  memmove(netdevs, test_drvdata, sizeof(netdevs));
+  memmove(netdev, test_drvdata, sizeof(netdev));
 #endif
   PRINT_INFO("nic_remove\n");
 
   // net device
   for (int i = 0; i < IF_NUM; i++) {
-    unregister_netdev(netdevs[i]);
-    free_netdev(netdevs[i]);
+    unregister_netdev(netdev[i]);
+    free_netdev(netdev[i]);
   }
 }
 
@@ -230,6 +236,8 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
   struct nic_rx_ring *rx_ring = &adapter->rx_ring;
   int err = 0;
 
+  // TX
+  tx_ring->count = NIC_TX_RING_COUNT;
   tx_ring->size = sizeof(struct nic_tx_desc) * tx_ring->count;
   tx_ring->size = ALIGN(tx_ring->size, 4096);
 
@@ -241,6 +249,8 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
     goto err_tx;
   }
 
+  // RX
+  rx_ring->count = NIC_RX_RING_COUNT;
   rx_ring->size = sizeof(struct nic_rx_frame) * rx_ring->count;
   rx_ring->size = ALIGN(rx_ring->size, 4096);
 
@@ -252,10 +262,22 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
     goto err_rx;
   }
 
+  rx_ring->head_va =
+      dma_alloc_coherent(&adapter->pdev->dev, sizeof(*(rx_ring->head_va)),
+                         &adapter->rx_ring.head_pa, GFP_KERNEL);
+  if (!rx_ring->head_va) {
+    PRINT_ERR("dma_alloc_coherent rx_ring head failed\n");
+    err = -ENOMEM;
+    goto err_rx_head_tail;
+  }
+
   // check_64k_bound
   // TODO
 
   return 0;
+err_rx_head_tail:
+  dma_free_coherent(&adapter->pdev->dev, rx_ring->size, rx_ring->va,
+                    rx_ring->pa);
 err_rx:
   dma_free_coherent(&adapter->pdev->dev, tx_ring->size, tx_ring->desc_va,
                     tx_ring->desc_pa);
@@ -270,6 +292,12 @@ static int nic_free_queues(struct nic_adapter *adapter) {
                     tx_ring->desc_pa);
   dma_free_coherent(&adapter->pdev->dev, rx_ring->size, rx_ring->va,
                     rx_ring->pa);
+  dma_free_coherent(&adapter->pdev->dev, sizeof(*(rx_ring->head_va)),
+                    rx_ring->head_va, rx_ring->head_pa);
+  tx_ring->count = 0;
+  tx_ring->size = 0;
+  rx_ring->count = 0;
+  rx_ring->size = 0;
   return 0;
 }
 
@@ -321,12 +349,36 @@ int nic_close(struct net_device *netdev) {
   return 0;
 }
 
+// for test
+void test_copy_data(struct work_struct *work) {
+  struct test_work_data *work_data =
+      (struct test_work_data *)atomic64_read(&work->data);
+  struct nic_adapter *dst = work_data->dst;
+  struct nic_adapter *src = work_data->src;
+  struct nic_tx_ring *src_tx_ring = &src->tx_ring;
+  struct nic_rx_ring *dst_rx_ring = &dst->rx_ring;
+  while (src_tx_ring->tail != src_tx_ring->head) {
+    struct nic_tx_desc *desc = &src_tx_ring->desc_va[src_tx_ring->tail];
+    struct nic_rx_frame *frame = &dst_rx_ring->va[*(dst_rx_ring->head_va)];
+    frame->data_len = desc->data_len;
+    memmove(dst_rx_ring->va + *(dst_rx_ring->head_va), desc->data_va,
+            desc->data_len);
+    *(dst_rx_ring->head_va) =
+        (*(dst_rx_ring->head_va) + 1) % dst_rx_ring->count;
+    src_tx_ring->tail = (src_tx_ring->tail + 1) % src_tx_ring->count;
+  }
+}
+
+DECLARE_WORK(test_work, test_copy_data);
+
 static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
                                   struct net_device *netdev) {
   struct nic_adapter *adapter = netdev_priv(netdev);
   struct nic_tx_ring *tx_ring;
   struct nic_tx_desc *desc;
-  dma_addr_t dma_addr;
+  u16 head;
+
+  PRINT_INFO("nic_xmit_frame\n");
 
   /* This goes back to the question of how to logically map a Tx queue
    * to a flow.  Right now, performance is impacted slightly negatively
@@ -334,6 +386,8 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
    * single qdisc implementation, we can look at this again.
    */
   tx_ring = &adapter->tx_ring;
+  head = tx_ring->head;
+  desc = &tx_ring->desc_va[head];
 
   /* On PCI/PCI-X HW, if packet size is less than ETH_ZLEN,
    * packets may get corrupted during padding by HW.
@@ -346,7 +400,58 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
   // mss
   // TODO
 
+  desc->data_len = skb->len;
+  desc->data_va = skb->data;
+#ifndef NO_PCI
+  desc->data_pa = dma_map_single(&adapter->pdev->dev, desc->data_va,
+                                 desc->data_len, DMA_TO_DEVICE);
+#else
+  // use va as pa, for test
+  desc->data_pa = (dma_addr_t)NULL;
+#endif
+
+  tx_ring->head = (head + 1) % tx_ring->count;
+#ifndef NO_PCI
+  writel(tx_ring->head, ((void *)adapter->hw_addr) + NIC_BAR_TX_RING_HEAD);
+#endif
+
+// for test
+#ifdef NO_PCI
+  {
+    struct test_work_data *work_data = vmalloc(sizeof(struct test_work_data));
+    work_data->src = adapter;
+    if (adapter->if_id == 0) {
+      work_data->dst = test_drvdata[1];
+    } else {
+      work_data->dst = test_drvdata[0];
+    }
+    atomic64_set(&test_work.data, (u64)work_data);
+    schedule_work(&test_work);
+  }
+#endif
+
   return NETDEV_TX_OK;
+}
+
+static struct sk_buff *nic_receive_skb(struct nic_adapter *adapter) {
+  struct sk_buff *skb;
+  struct nic_rx_frame *frame;
+  PRINT_INFO("nic_receive\n");
+
+  frame = &adapter->rx_ring.va[adapter->rx_ring.tail];
+  if (frame->data_len == 0) {
+    return NULL;
+  }
+  skb = alloc_skb(frame->data_len, GFP_ATOMIC);
+  if (!skb) {
+    PRINT_ERR("alloc_skb failed\n");
+    return NULL;
+  }
+  skb_put_data(skb, frame->data, frame->data_len);
+  adapter->rx_ring.tail = (adapter->rx_ring.tail + 1) % adapter->rx_ring.count;
+
+  frame->data_len = 0;
+  return skb;
 }
 
 static void nic_set_rx_mode(struct net_device *netdev) {}
@@ -372,6 +477,36 @@ static int nic_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd) {
 // }
 
 static void nic_netpoll(struct net_device *netdev) {}
+
+static int nic_poll(struct napi_struct *napi, int budget) {
+  struct nic_adapter *adapter = container_of(napi, struct nic_adapter, napi);
+  struct nic_rx_ring *rx_ring;
+  struct sk_buff *skb;
+  int work_done = 0;
+  PRINT_INFO("nic_netpoll\n");
+
+  // TODO
+  // int work_to_do = min(*budget, netdev->quota);
+
+  rx_ring = &adapter->rx_ring;
+
+  while (*(rx_ring->head_va) != rx_ring->tail) {
+
+    if (work_done >= budget) {
+      break;
+    }
+    work_done++;
+
+    skb = nic_receive_skb(adapter);
+    if (!skb) {
+      break;
+    }
+  }
+
+  napi_complete_done(napi, work_done);
+
+  return work_done;
+}
 
 static netdev_features_t nic_fix_features(struct net_device *netdev,
                                           netdev_features_t features) {
