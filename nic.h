@@ -22,21 +22,22 @@
 #define NIC_TX_RING_COUNT 16
 #define NIC_RX_RING_COUNT 16
 
-#define NIC_BAR_TX_RING_HEAD      0x00
-#define NIC_BAR_TX_RING_TAIL      0x04
-#define NIC_BAR_TX_RING_HEAD_PA   0x08  // reserved
-#define NIC_BAR_TX_RING_TAIL_PA   0x10  // reserved
-#define NIC_BAR_TX_RING_DESC_PA   0x18
+#define NIC_BAR_TX_RING_HEAD 0x00
+#define NIC_BAR_TX_RING_TAIL 0x04
+#define NIC_BAR_TX_RING_HEAD_PA 0x08 // reserved
+#define NIC_BAR_TX_RING_TAIL_PA 0x10 // reserved
+#define NIC_BAR_TX_RING_DESC_PA 0x18
 
-#define NIC_BAR_RX_RING_HEAD      0x20  // reserved
-#define NIC_BAR_RX_RING_TAIL      0x24  // reserved
-#define NIC_BAR_RX_RING_HEAD_PA   0x28
-#define NIC_BAR_RX_RING_TAIL_PA   0x30
-#define NIC_BAR_RX_RING_PA        0x38
+#define NIC_BAR_RX_RING_HEAD 0x20 // reserved
+#define NIC_BAR_RX_RING_TAIL 0x24 // reserved
+#define NIC_BAR_RX_RING_HEAD_PA 0x28
+#define NIC_BAR_RX_RING_TAIL_PA 0x30
+#define NIC_BAR_RX_RING_PA 0x38
 
 #define PRINT_INFO(fmt, ...)                                                   \
   printk(KERN_INFO NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
-#define PRINT_ERR(fmt, ...) printk(KERN_ERR NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
+#define PRINT_ERR(fmt, ...)                                                    \
+  printk(KERN_ERR NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
 
 struct nic_tx_desc {
   void *data_va;
@@ -77,6 +78,8 @@ struct nic_adapter {
   /* OS defined structs */
   struct net_device *netdev;
   struct pci_dev *pdev;
+
+  int msg_enable;
 
   /* TX */
   struct nic_tx_ring tx_ring;

@@ -372,6 +372,8 @@ int nic_open(struct net_device *netdev) {
     goto err_setup;
   }
 
+  PRINT_INFO("nic_open done\n");
+
   return 0;
 
 err_setup:
