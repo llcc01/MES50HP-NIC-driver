@@ -363,7 +363,7 @@ void nic_free_all_resources(struct nic_adapter *adapter) {
 int nic_open(struct net_device *netdev) {
   struct nic_adapter *adapter = netdev_priv(netdev);
   int err;
-  PRINT_INFO("nic_open\n");
+  netdev_info(netdev, "nic_open\n");
 
   netif_carrier_off(netdev);
 
@@ -371,8 +371,6 @@ int nic_open(struct net_device *netdev) {
   if (err) {
     goto err_setup;
   }
-
-  PRINT_INFO("nic_open done\n");
 
   return 0;
 
@@ -382,7 +380,7 @@ err_setup:
 
 int nic_close(struct net_device *netdev) {
   struct nic_adapter *adapter = netdev_priv(netdev);
-  PRINT_INFO("nic_close\n");
+  netdev_info(netdev, "nic_close\n");
 
   nic_free_all_resources(adapter);
 
@@ -418,7 +416,10 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
   struct nic_tx_desc *desc;
   u16 head;
 
-  PRINT_INFO("nic_xmit_frame\n");
+  netdev_info(netdev, "nic_xmit_frame\n");
+  netdev_info(netdev, "skb->len: %u\n", skb->len);
+
+  return NETDEV_TX_OK;
 
   /* This goes back to the question of how to logically map a Tx queue
    * to a flow.  Right now, performance is impacted slightly negatively
@@ -466,7 +467,7 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
       work_data->dst = test_drvdata[0];
     }
     atomic64_set(&test_work.data, (u64)work_data);
-    schedule_work(&test_work);
+    // schedule_work(&test_work);
   }
 #endif
 
@@ -495,25 +496,25 @@ static struct sk_buff *nic_receive_skb(struct nic_adapter *adapter) {
 }
 
 static void nic_set_rx_mode(struct net_device *netdev) {
-  PRINT_INFO("nic_set_rx_mode\n");
+  netdev_info(netdev, "nic_set_rx_mode\n");
 }
 
 static int nic_set_mac(struct net_device *netdev, void *p) {
-  PRINT_INFO("nic_set_mac\n");
+  netdev_info(netdev, "nic_set_mac\n");
   return 0;
 }
 
 static void nic_tx_timeout(struct net_device *dev, unsigned int txqueue) {
-  PRINT_INFO("nic_tx_timeout\n");
+  netdev_info(dev, "nic_tx_timeout\n");
 }
 
 static int nic_change_mtu(struct net_device *netdev, int new_mtu) {
-  PRINT_INFO("nic_change_mtu\n");
+  netdev_info(netdev, "nic_change_mtu\n");
   return 0;
 }
 
 static int nic_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd) {
-  PRINT_INFO("nic_ioctl\n");
+  netdev_info(netdev, "nic_ioctl\n");
   return 0;
 }
 
@@ -528,7 +529,7 @@ static int nic_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd) {
 // }
 
 static void nic_netpoll(struct net_device *netdev) {
-  PRINT_INFO("nic_netpoll\n");
+  netdev_info(netdev, "nic_netpoll\n");
 }
 
 static int nic_poll(struct napi_struct *napi, int budget) {
@@ -536,7 +537,7 @@ static int nic_poll(struct napi_struct *napi, int budget) {
   struct nic_rx_ring *rx_ring;
   struct sk_buff *skb;
   int work_done = 0;
-  PRINT_INFO("nic_poll\n");
+  netdev_info(adapter->netdev, "nic_poll\n");
 
   // TODO
   // int work_to_do = min(*budget, netdev->quota);

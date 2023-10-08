@@ -38,6 +38,8 @@
   printk(KERN_INFO NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
 #define PRINT_ERR(fmt, ...)                                                    \
   printk(KERN_ERR NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
+#define PRINT_WARN(fmt, ...)                                                   \
+  printk(KERN_WARNING NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
 
 struct nic_tx_desc {
   void *data_va;
