@@ -19,8 +19,8 @@
 #define NIC_DRIVER_NAME "nic"
 #define IF_NUM 2
 #define NIC_RX_PKT_SIZE 2048
-#define NIC_TX_RING_COUNT 16
-#define NIC_RX_RING_COUNT 16
+#define NIC_TX_RING_QUEUES 16
+#define NIC_RX_RING_QUEUES 16
 
 #define NIC_BAR_TX_RING_HEAD 0x00
 #define NIC_BAR_TX_RING_TAIL 0x04
@@ -56,8 +56,8 @@ struct nic_tx_ring {
   struct nic_tx_desc *desc_va;
   dma_addr_t desc_pa;
 
-  u16 size;
-  u16 count;
+  // u16 size;
+  u16 queues;
 
   u16 head;
   u16 tail; // reserved, for test
@@ -67,8 +67,8 @@ struct nic_rx_ring {
   void *va;
   dma_addr_t pa;
 
-  u16 size;
-  u16 count;
+  // u16 size;
+  u16 queues;
 
   u16 *head_va;
   dma_addr_t head_pa;
@@ -96,9 +96,10 @@ struct nic_adapter {
 
 #ifdef NO_PCI
 
-struct test_work_data {
-  struct nic_adapter *dst;
-  struct nic_adapter *src;
+struct test_work_ctx {
+  struct work_struct work;
+  u16 dst;
+  u16 src;
 };
 
 #endif
