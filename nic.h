@@ -26,13 +26,13 @@
 #define NIC_MMIO_TX_BD_TAIL 0x04
 // #define NIC_MMIO_TX_BD_HEAD_PA 0x08 // reserved
 // #define NIC_MMIO_TX_BD_TAIL_PA 0x10 // reserved
-#define NIC_MMIO_TX_BD_PA   0x18
+#define NIC_MMIO_TX_BD_PA 0x18
 
 // #define NIC_MMIO_RX_BD_HEAD 0x20 // reserved
 // #define NIC_MMIO_RX_BD_TAIL 0x24 // reserved
-#define NIC_MMIO_RX_BD_HEAD_PA  0x28
-#define NIC_MMIO_RX_BD_TAIL_PA  0x30
-#define NIC_MMIO_RX_BD_PA       0x38
+#define NIC_MMIO_RX_BD_HEAD_PA 0x28
+#define NIC_MMIO_RX_BD_TAIL_PA 0x30
+#define NIC_MMIO_RX_BD_PA 0x38
 
 #define PRINT_INFO(fmt, ...)                                                   \
   printk(KERN_INFO NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
@@ -91,8 +91,11 @@ struct nic_adapter {
   struct nic_rx_ring rx_ring;
   struct napi_struct napi;
 
-  u64 hw_addr;
   u16 if_id;
+
+  void *io_addr;
+  unsigned long io_base;
+  u64 io_size;
 };
 
 #ifdef NO_PCI

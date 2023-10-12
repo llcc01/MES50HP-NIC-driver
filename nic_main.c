@@ -130,18 +130,44 @@ module_exit(nic_exit_module);
 static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
   struct net_device **netdevs;
   struct nic_adapter *adapter[IF_NUM];
+  int bars;
   int err = 0;
   size_t i;
 
   PRINT_INFO("nic_probe\n");
 
+  // pcie
+#ifndef NO_PCI
+  err = pci_enable_device_mem(pdev);
+  if (err) {
+    PRINT_ERR("pci_enable_device failed\n");
+    return err;
+  }
+
+  bars = pci_select_bars(pdev, IORESOURCE_MEM);
+  err = pci_request_selected_regions(pdev, bars, nic_driver_name);
+  if (err) {
+    PRINT_ERR("pci_request_mem_regions failed\n");
+    goto err_request_mem_regions;
+  }
+
+  pci_set_master(pdev);
+  err = pci_save_state(pdev);
+  if (err) {
+    PRINT_ERR("pci_save_state failed\n");
+    goto err_alloc_netdevs;
+  }
+  PRINT_INFO("pci_enable_device\n");
+#endif
+
+  // net device
   netdevs = kmalloc(sizeof(struct net_device *) * IF_NUM, GFP_KERNEL);
   if (!netdevs) {
     PRINT_ERR("alloc netdevs failed\n");
     err = -ENOMEM;
     goto err_alloc_netdevs;
   }
-  // net device
+
   for (i = 0; i < IF_NUM; i++) {
     netdevs[i] = alloc_etherdev(sizeof(struct nic_adapter));
     adapter[i] = netdev_priv(netdevs[i]);
@@ -170,11 +196,31 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 #endif
   PRINT_INFO("alloc netdev\n");
 
-  // io
-  PRINT_INFO("pci_enable_device\n");
+#ifndef NO_PCI
+  // ioremap
+  adapter[0]->io_size = pci_resource_len(pdev, 0);
+  adapter[0]->io_base = pci_resource_start(pdev, 0);
+  adapter[0]->io_addr = pci_ioremap_bar(pdev, 0);
+  if (!adapter[0]->io_addr) {
+    PRINT_ERR("pci_ioremap_bar failed\n");
+    err = -ENOMEM;
+    goto err_ioremap;
+  }
+  for (i = 1; i < IF_NUM; i++) {
+    adapter[i]->io_size = adapter[0]->io_size;
+    adapter[i]->io_base = adapter[0]->io_base;
+    adapter[i]->io_addr = adapter[0]->io_addr;
+  }
+  PRINT_INFO("pci_ioremap\n");
 
   // dma
+  err = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
+  if (err) {
+    PRINT_ERR("No usable DMA config, aborting\n");
+    goto err_dma;
+  }
   PRINT_INFO("pci_set_dma_mask\n");
+#endif
 
   // ops
   for (i = 0; i < IF_NUM; i++) {
@@ -205,9 +251,16 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
   return 0;
 
 err_register:
+err_dma:
+err_ioremap:
 err_alloc_etherdev:
   kfree(netdevs);
 err_alloc_netdevs:
+#ifndef NO_PCI
+err_request_mem_regions:
+  pci_disable_device(pdev);
+#endif
+
   return err;
 }
 
@@ -584,8 +637,8 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
   bd->len = skb->len;
   tx_ring->data_vas[head] = skb->data;
 #ifndef NO_PCI
-  bd->addr =
-      dma_map_single(&pdev->dev, tx_ring->data_vas[head], bd->len, DMA_TO_DEVICE);
+  bd->addr = dma_map_single(&pdev->dev, tx_ring->data_vas[head], bd->len,
+                            DMA_TO_DEVICE);
 #else
   // use va as pa, for test
   bd->addr = (dma_addr_t)NULL;
@@ -593,7 +646,7 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
 
   tx_ring->head = (head + 1) % tx_ring->queues;
 #ifndef NO_PCI
-  writel(tx_ring->head, ((void *)adapter->hw_addr) + NIC_MMIO_TX_BD_HEAD);
+  writel(tx_ring->head, ((void *)adapter->io_addr) + NIC_MMIO_TX_BD_HEAD);
 #endif
 
 // for test
