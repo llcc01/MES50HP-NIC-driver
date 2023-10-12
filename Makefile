@@ -11,8 +11,8 @@ insmod:
 rmmod:
 	sudo rmmod nic.ko
 ip:
-	sudo ip a add 192.168.0.1/24 dev eth0
-	sudo ip a add 192.168.1.1/24 dev eth1
+	sudo ip a add 192.168.10.1/24 dev eth0
+	sudo ip a add 192.168.11.1/24 dev eth1
 	ip a
 route:
-	sudo ip route add 192.168.10.0/24 via 192.168.0.1
+	sudo ip route add 192.168.20.0/24 via 192.168.0.1

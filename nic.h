@@ -13,7 +13,7 @@
 #include <linux/stddef.h>
 #include <linux/types.h>
 
-#define NO_PCI
+// #define NO_PCI
 
 #define PCI_VENDOR_ID_MY 0x11cc
 #define NIC_DRIVER_NAME "nic"
@@ -22,17 +22,17 @@
 #define NIC_TX_RING_QUEUES 16
 #define NIC_RX_RING_QUEUES 16
 
-#define NIC_BAR_TX_RING_HEAD 0x00
-#define NIC_BAR_TX_RING_TAIL 0x04
-#define NIC_BAR_TX_RING_HEAD_PA 0x08 // reserved
-#define NIC_BAR_TX_RING_TAIL_PA 0x10 // reserved
-#define NIC_BAR_TX_RING_DESC_PA 0x18
+#define NIC_MMIO_TX_BD_HEAD 0x00
+#define NIC_MMIO_TX_BD_TAIL 0x04
+// #define NIC_MMIO_TX_BD_HEAD_PA 0x08 // reserved
+// #define NIC_MMIO_TX_BD_TAIL_PA 0x10 // reserved
+#define NIC_MMIO_TX_BD_PA   0x18
 
-#define NIC_BAR_RX_RING_HEAD 0x20 // reserved
-#define NIC_BAR_RX_RING_TAIL 0x24 // reserved
-#define NIC_BAR_RX_RING_HEAD_PA 0x28
-#define NIC_BAR_RX_RING_TAIL_PA 0x30
-#define NIC_BAR_RX_RING_PA 0x38
+// #define NIC_MMIO_RX_BD_HEAD 0x20 // reserved
+// #define NIC_MMIO_RX_BD_TAIL 0x24 // reserved
+#define NIC_MMIO_RX_BD_HEAD_PA  0x28
+#define NIC_MMIO_RX_BD_TAIL_PA  0x30
+#define NIC_MMIO_RX_BD_PA       0x38
 
 #define PRINT_INFO(fmt, ...)                                                   \
   printk(KERN_INFO NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
@@ -41,10 +41,10 @@
 #define PRINT_WARN(fmt, ...)                                                   \
   printk(KERN_WARNING NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
 
-struct nic_tx_desc {
-  void *data_va;
-  dma_addr_t data_pa;
-  u16 data_len;
+struct nic_bd {
+  dma_addr_t addr;
+  u16 len;
+  u16 flags;
 };
 
 struct nic_rx_frame {
@@ -53,8 +53,9 @@ struct nic_rx_frame {
 };
 
 struct nic_tx_ring {
-  struct nic_tx_desc *desc_va;
-  dma_addr_t desc_pa;
+  void **data_vas;
+  struct nic_bd *bd_va;
+  dma_addr_t bd_pa;
 
   // u16 size;
   u16 queues;
@@ -64,10 +65,10 @@ struct nic_tx_ring {
 };
 
 struct nic_rx_ring {
-  void *va;
-  dma_addr_t pa;
+  void **data_vas;
+  struct nic_bd *bd_va;
+  dma_addr_t bd_pa;
 
-  // u16 size;
   u16 queues;
 
   u16 *head_va;

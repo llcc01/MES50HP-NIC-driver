@@ -28,8 +28,6 @@ for nic
 
 static u32 nic_get_link(struct net_device *netdev) {
   netdev_info(netdev, "nic_get_link\n");
-  netif_carrier_on(netdev);
-  netdev_info(netdev, "netif_carrier_on\n");
   return 1;
 }
 
