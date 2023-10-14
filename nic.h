@@ -34,6 +34,10 @@
 #define NIC_MMIO_RX_BD_TAIL_PA 0x30
 #define NIC_MMIO_RX_BD_PA 0x38
 
+#define NIC_MMIO_CSR_INT 0x40
+
+#define NIC_MMIO_IF_REG_SIZE 0x50
+
 #define PRINT_INFO(fmt, ...)                                                   \
   printk(KERN_INFO NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
 #define PRINT_ERR(fmt, ...)                                                    \
@@ -93,9 +97,12 @@ struct nic_adapter {
 
   u16 if_id;
 
+  int bars;
+
   void *io_addr;
   unsigned long io_base;
   u64 io_size;
+  int irq;
 };
 
 #ifdef NO_PCI
