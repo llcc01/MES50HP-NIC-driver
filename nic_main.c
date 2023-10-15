@@ -74,10 +74,11 @@ static netdev_features_t nic_fix_features(struct net_device *netdev,
                                           netdev_features_t features);
 static int nic_set_features(struct net_device *netdev,
                             netdev_features_t features);
-static void nic_set_int(struct nic_adapter *adapter, bool enable);
 
 #ifndef NO_PCI
+static void nic_set_int(struct nic_adapter *adapter, bool enable);
 static irqreturn_t nic_interrupt(int irq, void *data);
+static void nic_clean_tx_ring_work(struct work_struct *work);
 #endif
 
 static const struct net_device_ops nic_netdev_ops = {
@@ -101,9 +102,8 @@ static const struct net_device_ops nic_netdev_ops = {
 
 #ifdef NO_PCI
 static struct net_device *test_netdev[IF_NUM];
-static struct workqueue_struct *test_wq;
-
 #endif
+static struct workqueue_struct *nic_wq;
 
 static int __init nic_init_module(void) {
   int ret;
@@ -113,8 +113,8 @@ static int __init nic_init_module(void) {
   ret = pci_register_driver(&nic_driver);
 #else
   ret = nic_probe(NULL, NULL);
-  test_wq = create_singlethread_workqueue("test_wq");
 #endif
+  nic_wq = create_singlethread_workqueue("nic_wq");
 
   return ret;
 }
@@ -127,8 +127,8 @@ static void __exit nic_exit_module(void) {
   pci_unregister_driver(&nic_driver);
 #else
   nic_remove(NULL);
-  destroy_workqueue(test_wq);
 #endif
+  destroy_workqueue(nic_wq);
 }
 
 module_exit(nic_exit_module);
@@ -344,8 +344,9 @@ static void nic_remove(struct pci_dev *pdev) {
   }
 
   kfree(netdevs);
-
+#ifndef NO_PCI
   pci_disable_device(pdev);
+#endif
 }
 
 static int __maybe_unused nic_suspend(struct device *dev) { return 0; }
@@ -390,8 +391,8 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
   // tx_ring->size = sizeof(struct nic_tx_desc) * tx_ring->queues;
   // tx_ring->size = ALIGN(tx_ring->size, 4096);
 
-  tx_ring->data_vas = kcalloc(tx_ring->queues, sizeof(void *), GFP_KERNEL);
-  if (!tx_ring->data_vas) {
+  tx_ring->skbs = kcalloc(tx_ring->queues, sizeof(void *), GFP_KERNEL);
+  if (!tx_ring->skbs) {
     PRINT_ERR("alloc tx_ring data_vas failed\n");
     err = -ENOMEM;
     goto err_tx;
@@ -491,6 +492,11 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
   writeq(tx_ring->bd_pa, adapter->io_addr + NIC_MMIO_TX_BD_PA);
   writeq(rx_ring->head_pa, adapter->io_addr + NIC_MMIO_RX_BD_HEAD_PA);
   writeq(rx_ring->bd_pa, adapter->io_addr + NIC_MMIO_RX_BD_PA);
+
+  writel(0, adapter->io_addr + NIC_MMIO_TX_BD_TAIL);
+  writel(0, adapter->io_addr + NIC_MMIO_TX_BD_HEAD);
+
+  writel(0, adapter->io_addr + NIC_MMIO_RX_BD_HEAD);
 #endif
 
   return 0;
@@ -524,7 +530,7 @@ err_rx:
 #endif
 
 err_tx_bd:
-  kfree(tx_ring->data_vas);
+  kfree(tx_ring->skbs);
 
 err_tx:
   return err;
@@ -551,7 +557,7 @@ static int nic_free_queues(struct nic_adapter *adapter) {
 
   dma_free_coherent(&pdev->dev, tx_ring->queues, tx_ring->bd_va,
                     tx_ring->bd_pa);
-  kfree(tx_ring->data_vas);
+  kfree(tx_ring->skbs);
 #else
   kfree(rx_ring->head_va);
   kfree(rx_ring->data_vas[0]);
@@ -559,7 +565,7 @@ static int nic_free_queues(struct nic_adapter *adapter) {
   kfree(rx_ring->data_vas);
 
   kfree(tx_ring->bd_va);
-  kfree(tx_ring->data_vas);
+  kfree(tx_ring->skbs);
 #endif
 
   tx_ring->queues = 0;
@@ -603,7 +609,9 @@ int nic_open(struct net_device *netdev) {
 
   napi_enable(&adapter->napi);
 
+#ifndef NO_PCI
   nic_set_int(adapter, true);
+#endif
 
   netif_start_queue(netdev);
 
@@ -676,12 +684,9 @@ void test_copy_data(struct work_struct *work) {
       break;
     }
 
-    frame->data_len = bd->len;
+    memmove(frame->data, src_tx_ring->skbs[src_tx_ring->tail]->data, bd->len);
 
-    memmove(frame->data, src_tx_ring->data_vas[src_tx_ring->tail], bd->len);
-
-    skb = container_of(src_tx_ring->data_vas[src_tx_ring->tail], struct sk_buff,
-                       data);
+    skb = src_tx_ring->skbs[src_tx_ring->tail];
     dev_kfree_skb_any(skb);
 
     // print_ring();
@@ -731,21 +736,16 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
     return NETDEV_TX_OK;
   }
 
+  // dev_kfree_skb_any(skb);
+  // return NETDEV_TX_OK;
+
   // mss
   // TODO
 
-  if (tx_ring->data_vas[head]) {
-    dev_kfree_skb_any(
-        container_of(tx_ring->data_vas[head], struct sk_buff, data));
-  }
-
   bd->len = skb->len;
-  tx_ring->data_vas[head] = skb->data;
+  tx_ring->skbs[head] = skb;
 #ifndef NO_PCI
-  if (bd->addr) {
-    dma_unmap_single(&pdev->dev, bd->addr, bd->len, DMA_TO_DEVICE);
-  }
-  bd->addr = dma_map_single(&pdev->dev, tx_ring->data_vas[head], bd->len,
+  bd->addr = dma_map_single(&pdev->dev, tx_ring->skbs[head]->data, bd->len,
                             DMA_TO_DEVICE);
 #else
   // use va as pa, for test
@@ -782,7 +782,7 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
 
     // netdev_info(netdev, "INIT_WORK test_copy_data\n");
     INIT_WORK(&work_ctx->work, test_copy_data);
-    if (!queue_work(test_wq, &work_ctx->work)) {
+    if (!queue_work(nic_wq, &work_ctx->work)) {
       netdev_err(netdev, "schedule_work failed\n");
       kfree(work_ctx);
     }
@@ -796,25 +796,28 @@ static struct sk_buff *nic_receive_skb(struct nic_adapter *adapter) {
   struct net_device *netdev = adapter->netdev;
   struct sk_buff *skb = NULL;
   struct nic_rx_frame *frame;
+  struct nic_bd *bd;
   netdev_info(netdev, "nic_receive_skb\n");
 
   frame = adapter->rx_ring.data_vas[adapter->rx_ring.tail];
-  if (frame->data_len == 0) {
+  bd = &adapter->rx_ring.bd_va[adapter->rx_ring.tail];
+  if (bd->len == 0) {
     netdev_info(netdev, "nic_receive_skb: data_len == 0\n");
     goto err_recv;
   }
-  skb = napi_alloc_skb(&adapter->napi, frame->data_len);
+
+  skb = napi_alloc_skb(&adapter->napi, bd->len);
   if (!skb) {
     netdev_err(netdev, "napi_alloc_skb failed\n");
     goto err_recv;
   }
-  skb_put_data(skb, frame->data, frame->data_len);
+  skb_put_data(skb, frame->data, bd->len);
   netdev_info(netdev, "nic_receive_skb->len: %u\n", skb->len);
 
 err_recv:
   adapter->rx_ring.tail = (adapter->rx_ring.tail + 1) % adapter->rx_ring.queues;
 
-  frame->data_len = 0;
+  // bd->flags |= NIC_BD_FLAG_USED;
   return skb;
 }
 
@@ -883,9 +886,11 @@ static int nic_poll(struct napi_struct *napi, int budget) {
     napi_gro_receive(napi, skb);
   }
 
+#ifndef NO_PCI
   if (napi_complete_done(napi, work_done)) {
     nic_set_int(adapter, true);
   }
+#endif
 
   return work_done;
 }
@@ -914,6 +919,7 @@ static int nic_set_features(struct net_device *netdev,
   return 0;
 }
 
+#ifndef NO_PCI
 static void nic_set_int(struct nic_adapter *adapter, bool enable) {
   void *csr_int_addr = adapter->io_addr + NIC_MMIO_CSR_INT;
   if (enable) {
@@ -925,11 +931,12 @@ static void nic_set_int(struct nic_adapter *adapter, bool enable) {
   }
 }
 
-#ifndef NO_PCI
 static irqreturn_t nic_interrupt(int irq, void *data) {
   struct net_device **netdevs = pci_get_drvdata(data);
   struct nic_adapter *adapter;
   size_t i;
+  struct clean_work_ctx *work_ctx;
+
   PRINT_INFO("nic_interrupt irq:%d\n", irq);
   for (i = 0; i < IF_NUM; i++) {
     adapter = netdev_priv(netdevs[i]);
@@ -937,7 +944,49 @@ static irqreturn_t nic_interrupt(int irq, void *data) {
       __napi_schedule(&adapter->napi);
     }
     nic_set_int(adapter, false);
+
+    work_ctx = kmalloc(sizeof(struct clean_work_ctx), GFP_ATOMIC);
+    if (!work_ctx) {
+      netdev_err(netdevs[i], "work_ctx kmalloc failed\n");
+      continue;
+    }
+    work_ctx->adapter = adapter;
+
+    // netdev_info(netdev, "INIT_WORK nic_clean_tx_ring_work\n");
+    INIT_WORK(&work_ctx->work, nic_clean_tx_ring_work);
+    if (!queue_work(nic_wq, &work_ctx->work)) {
+      netdev_err(netdevs[i], "schedule_work failed\n");
+      kfree(work_ctx);
+    }
   }
   return IRQ_HANDLED;
+}
+
+static void nic_clean_tx_ring_work(struct work_struct *work) {
+  struct nic_adapter *adapter =
+      container_of(work, struct clean_work_ctx, work)->adapter;
+  struct nic_bd *bd_clean;
+  struct sk_buff *skb_clean;
+  struct nic_tx_ring *tx_ring = &adapter->tx_ring;
+  while (1) {
+    if (!tx_ring->bd_va || !tx_ring->skbs) {
+      break;
+    }
+    bd_clean = &tx_ring->bd_va[tx_ring->tail];
+    skb_clean = tx_ring->skbs[tx_ring->tail];
+    if (!(bd_clean->flags & NIC_BD_FLAG_USED)) {
+      break;
+    }
+    dma_unmap_single(&adapter->pdev->dev, bd_clean->addr, bd_clean->len,
+                     DMA_TO_DEVICE);
+    dev_kfree_skb_any(skb_clean);
+    // bd_clean->flags &= ~NIC_BD_FLAG_VALID;
+    // bd_clean->flags &= ~NIC_BD_FLAG_USED;
+    bd_clean->flags = 0;
+
+    netdev_info(adapter->netdev, "free skb %u\n", tx_ring->tail);
+
+    tx_ring->tail = (tx_ring->tail + 1) % tx_ring->queues;
+  }
 }
 #endif

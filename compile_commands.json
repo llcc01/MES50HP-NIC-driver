@@ -159,15 +159,14 @@
       "-falign-loops=1",
       "-mno-80387",
       "-mno-fp-ret-in-387",
-      "-mpreferred-stack-boundary=3",
+      
       "-mskip-rax-setup",
       "-mtune=generic",
       "-mno-red-zone",
       "-mcmodel=kernel",
       "-Wno-sign-compare",
       "-fno-asynchronous-unwind-tables",
-      "-mindirect-branch=thunk-extern",
-      "-mindirect-branch-register",
+      
       "-mindirect-branch-cs-prefix",
       "-mfunction-return=thunk-extern",
       "-fno-jump-tables",
@@ -179,7 +178,7 @@
       "-Wno-format-overflow",
       "-Wno-address-of-packed-member",
       "-O2",
-      "-fno-allow-store-data-races",
+      
       "-Wframe-larger-than=1024",
       "-fstack-protector-strong",
       "-Wno-main",
@@ -208,7 +207,7 @@
       "-Wimplicit-fallthrough=5",
       "-fno-strict-overflow",
       "-fno-stack-check",
-      "-fconserve-stack",
+      
       "-Werror=date-time",
       "-Werror=incompatible-pointer-types",
       "-Werror=designated-init",

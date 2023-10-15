@@ -19,8 +19,8 @@
 #define NIC_DRIVER_NAME "nic"
 #define IF_NUM 2
 #define NIC_RX_PKT_SIZE 2048
-#define NIC_TX_RING_QUEUES 16
-#define NIC_RX_RING_QUEUES 16
+#define NIC_TX_RING_QUEUES 128
+#define NIC_RX_RING_QUEUES 128
 
 #define NIC_MMIO_TX_BD_HEAD 0x00
 #define NIC_MMIO_TX_BD_TAIL 0x04
@@ -28,10 +28,10 @@
 // #define NIC_MMIO_TX_BD_TAIL_PA 0x10 // reserved
 #define NIC_MMIO_TX_BD_PA 0x18
 
-// #define NIC_MMIO_RX_BD_HEAD 0x20 // reserved
+#define NIC_MMIO_RX_BD_HEAD 0x20 // for reset
 // #define NIC_MMIO_RX_BD_TAIL 0x24 // reserved
 #define NIC_MMIO_RX_BD_HEAD_PA 0x28
-#define NIC_MMIO_RX_BD_TAIL_PA 0x30
+// #define NIC_MMIO_RX_BD_TAIL_PA 0x30
 #define NIC_MMIO_RX_BD_PA 0x38
 
 #define NIC_MMIO_CSR_INT 0x40
@@ -45,19 +45,21 @@
 #define PRINT_WARN(fmt, ...)                                                   \
   printk(KERN_WARNING NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
 
+// #define NIC_BD_FLAG_VALID BIT(0)
+#define NIC_BD_FLAG_USED BIT(1)
+
 struct nic_bd {
   dma_addr_t addr;
-  u16 len;
+  u16 len; // for tx, len is the length of the packet
   u16 flags;
 };
 
 struct nic_rx_frame {
-  u16 data_len;
-  u8 data[NIC_RX_PKT_SIZE - 2];
+  u8 data[NIC_RX_PKT_SIZE];
 };
 
 struct nic_tx_ring {
-  void **data_vas;
+  struct sk_buff **skbs;
   struct nic_bd *bd_va;
   dma_addr_t bd_pa;
 
@@ -114,6 +116,12 @@ struct test_work_ctx {
 };
 
 #endif
+
+
+struct clean_work_ctx {
+  struct work_struct work;
+  struct nic_adapter *adapter;
+};
 
 void nic_set_ethtool_ops(struct net_device *netdev);
 
