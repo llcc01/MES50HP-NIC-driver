@@ -759,13 +759,11 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
    * applicable for weak-ordered memory model archs,
    * such as IA-64).
    */
-  dma_wmb();
+  // dma_wmb();
 
   writel(tx_ring->head, ((void *)adapter->io_addr) + NIC_MMIO_TX_BD_HEAD);
-#endif
-
+#else
 // for test
-#ifdef NO_PCI
   {
     struct test_work_ctx *work_ctx;
     work_ctx = kmalloc(sizeof(struct test_work_ctx), GFP_ATOMIC);
