@@ -17,7 +17,7 @@
 
 #define PCI_VENDOR_ID_MY 0x11cc
 #define NIC_DRIVER_NAME "nic"
-#define IF_NUM 2
+#define NIC_IF_NUM 2
 #define NIC_RX_PKT_SIZE 2048
 #define NIC_TX_RING_QUEUES 128
 #define NIC_RX_RING_QUEUES 128
@@ -37,6 +37,12 @@
 #define NIC_MMIO_CSR_INT 0x40
 
 #define NIC_MMIO_IF_REG_SIZE 0x50
+
+#define NIC_VEC_TX 0
+#define NIC_VEC_RX 1
+#define NIC_VEC_OTHER 2
+
+#define NIC_VEC_IF_SIZE 4
 
 #define PRINT_INFO(fmt, ...)                                                   \
   printk(KERN_INFO NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
@@ -104,7 +110,9 @@ struct nic_adapter {
   void *io_addr;
   unsigned long io_base;
   u64 io_size;
-  int irq;
+  int irq_tx;
+  int irq_rx;
+  int irq_other;
 };
 
 #ifdef NO_PCI

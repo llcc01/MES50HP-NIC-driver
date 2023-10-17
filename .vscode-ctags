@@ -1,0 +1,128 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_OUTPUT_EXCMD	mixed	/number, pattern, mixed, or combineV2/
+!_TAG_OUTPUT_FILESEP	slash	/slash or backslash/
+!_TAG_OUTPUT_MODE	u-ctags	/u-ctags or e-ctags/
+!_TAG_PATTERN_LENGTH_LIMIT	96	/0 for no limit/
+!_TAG_PROC_CWD	/home/lc/git/nic/	//
+!_TAG_PROGRAM_AUTHOR	Universal Ctags Team	//
+!_TAG_PROGRAM_NAME	Universal Ctags	/Derived from Exuberant Ctags/
+!_TAG_PROGRAM_URL	https://ctags.io/	/official site/
+!_TAG_PROGRAM_VERSION	5.9.0	//
+IF_NUM	nic.h	/^#define IF_NUM /;"	d
+INCLUDE_VERMAGIC	nic.mod.c	/^#define INCLUDE_VERMAGIC$/;"	d	file:
+NIC_BD_FLAG_USED	nic.h	/^#define NIC_BD_FLAG_USED /;"	d
+NIC_DRIVER_NAME	nic.h	/^#define NIC_DRIVER_NAME /;"	d
+NIC_MMIO_CSR_INT	nic.h	/^#define NIC_MMIO_CSR_INT /;"	d
+NIC_MMIO_IF_REG_SIZE	nic.h	/^#define NIC_MMIO_IF_REG_SIZE /;"	d
+NIC_MMIO_RX_BD_HEAD	nic.h	/^#define NIC_MMIO_RX_BD_HEAD /;"	d
+NIC_MMIO_RX_BD_HEAD_PA	nic.h	/^#define NIC_MMIO_RX_BD_HEAD_PA /;"	d
+NIC_MMIO_RX_BD_PA	nic.h	/^#define NIC_MMIO_RX_BD_PA /;"	d
+NIC_MMIO_TX_BD_HEAD	nic.h	/^#define NIC_MMIO_TX_BD_HEAD /;"	d
+NIC_MMIO_TX_BD_PA	nic.h	/^#define NIC_MMIO_TX_BD_PA /;"	d
+NIC_MMIO_TX_BD_TAIL	nic.h	/^#define NIC_MMIO_TX_BD_TAIL /;"	d
+NIC_RX_PKT_SIZE	nic.h	/^#define NIC_RX_PKT_SIZE /;"	d
+NIC_RX_RING_QUEUES	nic.h	/^#define NIC_RX_RING_QUEUES /;"	d
+NIC_TX_RING_QUEUES	nic.h	/^#define NIC_TX_RING_QUEUES /;"	d
+PCI_VENDOR_ID_MY	nic.h	/^#define PCI_VENDOR_ID_MY /;"	d
+PRINT_ERR	nic.h	/^#define PRINT_ERR(/;"	d
+PRINT_INFO	nic.h	/^#define PRINT_INFO(/;"	d
+PRINT_WARN	nic.h	/^#define PRINT_WARN(/;"	d
+_NIC_H_	nic.h	/^#define _NIC_H_$/;"	d
+____versions	nic.mod.c	/^static const char ____versions[]$/;"	v	typeref:typename:const char[]__used __section ("__versions")	file:
+adapter	nic.h	/^  struct nic_adapter *adapter;$/;"	m	struct:clean_work_ctx	typeref:struct:nic_adapter *
+addr	nic.h	/^  dma_addr_t addr;$/;"	m	struct:nic_bd	typeref:typename:dma_addr_t
+all	Makefile	/^all:$/;"	t
+bars	nic.h	/^  int bars;$/;"	m	struct:nic_adapter	typeref:typename:int
+bd_pa	nic.h	/^  dma_addr_t bd_pa;$/;"	m	struct:nic_rx_ring	typeref:typename:dma_addr_t
+bd_pa	nic.h	/^  dma_addr_t bd_pa;$/;"	m	struct:nic_tx_ring	typeref:typename:dma_addr_t
+bd_va	nic.h	/^  struct nic_bd *bd_va;$/;"	m	struct:nic_rx_ring	typeref:struct:nic_bd *
+bd_va	nic.h	/^  struct nic_bd *bd_va;$/;"	m	struct:nic_tx_ring	typeref:struct:nic_bd *
+clean	Makefile	/^clean:$/;"	t
+clean_work_ctx	nic.h	/^struct clean_work_ctx {$/;"	s
+data	nic.h	/^  u8 data[NIC_RX_PKT_SIZE];$/;"	m	struct:nic_rx_frame	typeref:typename:u8[]
+data_vas	nic.h	/^  void **data_vas;$/;"	m	struct:nic_rx_ring	typeref:typename:void **
+dst	nic.h	/^  u16 dst;$/;"	m	struct:test_work_ctx	typeref:typename:u16
+flags	nic.h	/^  u16 flags;$/;"	m	struct:nic_bd	typeref:typename:u16
+head	nic.h	/^  u16 head;$/;"	m	struct:nic_tx_ring	typeref:typename:u16
+head_pa	nic.h	/^  dma_addr_t head_pa;$/;"	m	struct:nic_rx_ring	typeref:typename:dma_addr_t
+head_va	nic.h	/^  u16 *head_va;$/;"	m	struct:nic_rx_ring	typeref:typename:u16 *
+if_id	nic.h	/^  u16 if_id;$/;"	m	struct:nic_adapter	typeref:typename:u16
+insmod	Makefile	/^insmod:$/;"	t
+io_addr	nic.h	/^  void *io_addr;$/;"	m	struct:nic_adapter	typeref:typename:void *
+io_base	nic.h	/^  unsigned long io_base;$/;"	m	struct:nic_adapter	typeref:typename:unsigned long
+io_size	nic.h	/^  u64 io_size;$/;"	m	struct:nic_adapter	typeref:typename:u64
+ip	Makefile	/^ip:$/;"	t
+ip2	Makefile	/^ip2:$/;"	t
+ip3	Makefile	/^ip3:$/;"	t
+irq	nic.h	/^  int irq;$/;"	m	struct:nic_adapter	typeref:typename:int
+len	nic.h	/^  u16 len; \/\/ for tx, len is the length of the packet$/;"	m	struct:nic_bd	typeref:typename:u16
+linkup	Makefile	/^linkup:$/;"	t
+linkup2	Makefile	/^linkup2:$/;"	t
+linkup3	Makefile	/^linkup3:$/;"	t
+msg_enable	nic.h	/^  int msg_enable;$/;"	m	struct:nic_adapter	typeref:typename:int
+napi	nic.h	/^  struct napi_struct napi;$/;"	m	struct:nic_adapter	typeref:struct:napi_struct
+netdev	nic.h	/^  struct net_device *netdev;$/;"	m	struct:nic_adapter	typeref:struct:net_device *
+nic-objs	Makefile	/^nic-objs := nic_main.o nic_ethtool.o$/;"	m
+nic_adapter	nic.h	/^struct nic_adapter {$/;"	s
+nic_alloc_queues	nic_main.c	/^static int nic_alloc_queues(struct nic_adapter *adapter) {$/;"	f	typeref:typename:int	file:
+nic_bd	nic.h	/^struct nic_bd {$/;"	s
+nic_change_mtu	nic_main.c	/^static int nic_change_mtu(struct net_device *netdev, int new_mtu) {$/;"	f	typeref:typename:int	file:
+nic_clean_tx_ring_work	nic_main.c	/^static void nic_clean_tx_ring_work(struct work_struct *work) {$/;"	f	typeref:typename:void	file:
+nic_close	nic_main.c	/^int nic_close(struct net_device *netdev) {$/;"	f	typeref:typename:int
+nic_driver	nic_main.c	/^static struct pci_driver nic_driver = {.name = nic_driver_name,$/;"	v	typeref:struct:pci_driver	file:
+nic_driver_name	nic_main.c	/^char nic_driver_name[] = NIC_DRIVER_NAME;$/;"	v	typeref:typename:char[]
+nic_err_handler	nic_main.c	/^static const struct pci_error_handlers nic_err_handler = {$/;"	v	typeref:typename:const struct pci_error_handlers	file:
+nic_ethtool_ops	nic_ethtool.c	/^static const struct ethtool_ops nic_ethtool_ops = {$/;"	v	typeref:typename:const struct ethtool_ops	file:
+nic_exit_module	nic_main.c	/^static void __exit nic_exit_module(void) {$/;"	f	typeref:typename:void __exit	file:
+nic_fix_features	nic_main.c	/^static netdev_features_t nic_fix_features(struct net_device *netdev,$/;"	f	typeref:typename:netdev_features_t	file:
+nic_free_all_resources	nic_main.c	/^void nic_free_all_resources(struct nic_adapter *adapter) {$/;"	f	typeref:typename:void
+nic_free_queues	nic_main.c	/^static int nic_free_queues(struct nic_adapter *adapter) {$/;"	f	typeref:typename:int	file:
+nic_get_link	nic_ethtool.c	/^static u32 nic_get_link(struct net_device *netdev) {$/;"	f	typeref:typename:u32	file:
+nic_get_link_ksettings	nic_ethtool.c	/^static int nic_get_link_ksettings(struct net_device *netdev,$/;"	f	typeref:typename:int	file:
+nic_init_module	nic_main.c	/^static int __init nic_init_module(void) {$/;"	f	typeref:typename:int __init	file:
+nic_interrupt	nic_main.c	/^static irqreturn_t nic_interrupt(int irq, void *data) {$/;"	f	typeref:typename:irqreturn_t	file:
+nic_io_error_detected	nic_main.c	/^static pci_ers_result_t nic_io_error_detected(struct pci_dev *pdev,$/;"	f	typeref:typename:pci_ers_result_t	file:
+nic_io_resume	nic_main.c	/^static void nic_io_resume(struct pci_dev *pdev) {}$/;"	f	typeref:typename:void	file:
+nic_io_slot_reset	nic_main.c	/^static pci_ers_result_t nic_io_slot_reset(struct pci_dev *pdev) {$/;"	f	typeref:typename:pci_ers_result_t	file:
+nic_ioctl	nic_main.c	/^static int nic_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd) {$/;"	f	typeref:typename:int	file:
+nic_netdev_ops	nic_main.c	/^static const struct net_device_ops nic_netdev_ops = {$/;"	v	typeref:typename:const struct net_device_ops	file:
+nic_netpoll	nic_main.c	/^static void nic_netpoll(struct net_device *netdev) {$/;"	f	typeref:typename:void	file:
+nic_open	nic_main.c	/^int nic_open(struct net_device *netdev) {$/;"	f	typeref:typename:int
+nic_pci_tbl	nic_main.c	/^static const struct pci_device_id nic_pci_tbl[] = {$/;"	v	typeref:typename:const struct pci_device_id[]	file:
+nic_poll	nic_main.c	/^static int nic_poll(struct napi_struct *napi, int budget) {$/;"	f	typeref:typename:int	file:
+nic_probe	nic_main.c	/^static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {$/;"	f	typeref:typename:int	file:
+nic_receive_skb	nic_main.c	/^static struct sk_buff *nic_receive_skb(struct nic_adapter *adapter) {$/;"	f	typeref:struct:sk_buff *	file:
+nic_remove	nic_main.c	/^static void nic_remove(struct pci_dev *pdev) {$/;"	f	typeref:typename:void	file:
+nic_resume	nic_main.c	/^static int __maybe_unused nic_resume(struct device *dev) { return 0; }$/;"	f	typeref:typename:int __maybe_unused	file:
+nic_rx_frame	nic.h	/^struct nic_rx_frame {$/;"	s
+nic_rx_ring	nic.h	/^struct nic_rx_ring {$/;"	s
+nic_set_ethtool_ops	nic_ethtool.c	/^void nic_set_ethtool_ops(struct net_device *netdev) {$/;"	f	typeref:typename:void
+nic_set_features	nic_main.c	/^static int nic_set_features(struct net_device *netdev,$/;"	f	typeref:typename:int	file:
+nic_set_int	nic_main.c	/^static void nic_set_int(struct nic_adapter *adapter, bool enable) {$/;"	f	typeref:typename:void	file:
+nic_set_mac	nic_main.c	/^static int nic_set_mac(struct net_device *netdev, void *p) {$/;"	f	typeref:typename:int	file:
+nic_set_rx_mode	nic_main.c	/^static void nic_set_rx_mode(struct net_device *netdev) {$/;"	f	typeref:typename:void	file:
+nic_setup_all_resources	nic_main.c	/^int nic_setup_all_resources(struct nic_adapter *adapter) {$/;"	f	typeref:typename:int
+nic_shutdown	nic_main.c	/^static void nic_shutdown(struct pci_dev *pdev) {}$/;"	f	typeref:typename:void	file:
+nic_suspend	nic_main.c	/^static int __maybe_unused nic_suspend(struct device *dev) { return 0; }$/;"	f	typeref:typename:int __maybe_unused	file:
+nic_tx_ring	nic.h	/^struct nic_tx_ring {$/;"	s
+nic_tx_timeout	nic_main.c	/^static void nic_tx_timeout(struct net_device *dev, unsigned int txqueue) {$/;"	f	typeref:typename:void	file:
+nic_wq	nic_main.c	/^static struct workqueue_struct *nic_wq;$/;"	v	typeref:struct:workqueue_struct *	file:
+nic_xmit_frame	nic_main.c	/^static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,$/;"	f	typeref:typename:netdev_tx_t	file:
+pdev	nic.h	/^  struct pci_dev *pdev;$/;"	m	struct:nic_adapter	typeref:struct:pci_dev *
+print_ring	nic_main.c	/^void print_ring(void) {$/;"	f	typeref:typename:void
+queues	nic.h	/^  u16 queues;$/;"	m	struct:nic_rx_ring	typeref:typename:u16
+queues	nic.h	/^  u16 queues;$/;"	m	struct:nic_tx_ring	typeref:typename:u16
+rmmod	Makefile	/^rmmod:$/;"	t
+route	Makefile	/^route:$/;"	t
+rx_ring	nic.h	/^  struct nic_rx_ring rx_ring;$/;"	m	struct:nic_adapter	typeref:struct:nic_rx_ring
+skbs	nic.h	/^  struct sk_buff **skbs;$/;"	m	struct:nic_tx_ring	typeref:struct:sk_buff **
+src	nic.h	/^  u16 src;$/;"	m	struct:test_work_ctx	typeref:typename:u16
+tail	nic.h	/^  u16 tail; \/\/ reserved, for test$/;"	m	struct:nic_tx_ring	typeref:typename:u16
+tail	nic.h	/^  u16 tail;$/;"	m	struct:nic_rx_ring	typeref:typename:u16
+test_copy_data	nic_main.c	/^void test_copy_data(struct work_struct *work) {$/;"	f	typeref:typename:void
+test_netdev	nic_main.c	/^static struct net_device *test_netdev[IF_NUM];$/;"	v	typeref:struct:net_device * []	file:
+test_work_ctx	nic.h	/^struct test_work_ctx {$/;"	s
+tx_ring	nic.h	/^  struct nic_tx_ring tx_ring;$/;"	m	struct:nic_adapter	typeref:struct:nic_tx_ring
+work	nic.h	/^  struct work_struct work;$/;"	m	struct:clean_work_ctx	typeref:struct:work_struct
+work	nic.h	/^  struct work_struct work;$/;"	m	struct:test_work_ctx	typeref:struct:work_struct
