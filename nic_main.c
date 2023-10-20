@@ -389,7 +389,11 @@ static int test_bars;
 
 struct timer_list test_timer;
 
-void test_timer_func(struct timer_list *t) { PRINT_INFO("test_timer_func\n"); }
+void test_timer_func(struct timer_list *t) {
+  // PRINT_INFO("test_timer_func\n");
+  test_io_addr[0] = 0x55aa;
+  mod_timer(&test_timer, jiffies + 1); // max frequency
+}
 
 static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
   int err = 0;
