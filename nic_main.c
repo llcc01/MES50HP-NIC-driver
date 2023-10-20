@@ -1,5 +1,6 @@
 #include "nic.h"
 #include <linux/dma-mapping.h>
+#include <linux/timer.h>
 #include <linux/version.h>
 
 MODULE_LICENSE("GPL");
@@ -135,6 +136,7 @@ static void __exit nic_exit_module(void) {
 
 module_exit(nic_exit_module);
 
+#ifndef PCI_FN_TEST
 static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
   struct net_device **netdevs;
   struct nic_adapter *adapter[NIC_IF_NUM];
@@ -220,7 +222,7 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
   for (i = 1; i < NIC_IF_NUM; i++) {
     adapter[i]->io_size = adapter[0]->io_size;
     adapter[i]->io_base = adapter[0]->io_base;
-    adapter[i]->io_addr = adapter[i - 1]->io_addr + NIC_MMIO_IF_REG_SIZE;
+    adapter[i]->io_addr = adapter[i - 1]->io_addr + NIC_IF_REG_SIZE;
   }
   PRINT_INFO("pci_ioremap\n");
 
@@ -259,7 +261,7 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
   PRINT_INFO("register netdev\n");
 
 #ifndef NO_PCI
-  // irq, currently only one irq
+  // irq
   err = pci_alloc_irq_vectors(pdev, NIC_VEC_IF_SIZE * NIC_IF_NUM,
                               NIC_VEC_IF_SIZE * NIC_IF_NUM, PCI_IRQ_MSI);
   if (err < 0) {
@@ -378,6 +380,148 @@ static void nic_remove(struct pci_dev *pdev) {
 #endif
 }
 
+#else
+
+static u32 test_io_size;
+static u32 test_io_base;
+static u32 *test_io_addr;
+static int test_bars;
+
+struct timer_list test_timer;
+
+void test_timer_func(struct timer_list *t) { PRINT_INFO("test_timer_func\n"); }
+
+static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
+  int err = 0;
+  size_t i;
+  PRINT_INFO("nic_probe\n");
+
+  // pcie
+  err = pci_enable_device_mem(pdev);
+  if (err) {
+    PRINT_ERR("pci_enable_device failed\n");
+    return err;
+  }
+
+  test_bars = pci_select_bars(pdev, IORESOURCE_MEM);
+  err = pci_request_selected_regions(pdev, test_bars, nic_driver_name);
+  if (err) {
+    PRINT_ERR("pci_request_selected_regions failed\n");
+    goto err_request_mem_regions;
+  }
+
+  pci_set_master(pdev);
+  err = pci_save_state(pdev);
+  if (err) {
+    PRINT_ERR("pci_save_state failed\n");
+    goto err_ioremap;
+  }
+  PRINT_INFO("pci_enable_device\n");
+
+  // ioremap
+  test_io_size = pci_resource_len(pdev, 0);
+  test_io_base = pci_resource_start(pdev, 0);
+  test_io_addr = pci_ioremap_bar(pdev, 0);
+  if (!test_io_addr) {
+    PRINT_ERR("pci_ioremap_bar failed\n");
+    err = -ENOMEM;
+    goto err_ioremap;
+  }
+  PRINT_INFO("pci_ioremap\n");
+
+  // dma
+  err = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
+  if (err) {
+    PRINT_ERR("No usable DMA config, aborting\n");
+    goto err_dma;
+  }
+  PRINT_INFO("pci_set_dma_mask\n");
+
+  // err = pci_alloc_irq_vectors(pdev, NIC_VEC_IF_SIZE * NIC_IF_NUM,
+  //                             NIC_VEC_IF_SIZE * NIC_IF_NUM, PCI_IRQ_MSI);
+  // if (err < 0) {
+  //   PRINT_ERR("pci_alloc_irq_vectors failed\n");
+  //   goto err_alloc_irq_vectors;
+  // }
+  // PRINT_INFO("pci_alloc_irq_vectors\n");
+
+  // for (i = 0; i < NIC_IF_NUM; i++) {
+  //   adapter[i]->irq_tx = pci_irq_vector(pdev, NIC_VEC_IF_SIZE * i +
+  //   NIC_VEC_TX); err = request_irq(adapter[i]->irq_tx, nic_interrupt_tx, 0,
+  //   nic_driver_name,
+  //                     netdevs[i]);
+  //   if (err) {
+  //     PRINT_ERR("request_irq %zu nic_interrupt_tx failed\n", i);
+  //     goto err_request_irq;
+  //   }
+
+  //   adapter[i]->irq_rx = pci_irq_vector(pdev, NIC_VEC_IF_SIZE * i +
+  //   NIC_VEC_RX); err = request_irq(adapter[i]->irq_rx, nic_interrupt_rx, 0,
+  //   nic_driver_name,
+  //                     netdevs[i]);
+  //   if (err) {
+  //     PRINT_ERR("request_irq %zu nic_interrupt_rx failed\n", i);
+  //     goto err_request_irq;
+  //   }
+
+  //   adapter[i]->irq_other =
+  //       pci_irq_vector(pdev, NIC_VEC_IF_SIZE * i + NIC_VEC_OTHER);
+  //   err = request_irq(adapter[i]->irq_other, nic_interrupt_other, 0,
+  //                     nic_driver_name, netdevs[i]);
+  //   if (err) {
+  //     PRINT_ERR("request_irq %zu nic_interrupt_other failed\n", i);
+  //     goto err_request_irq;
+  //   }
+  // }
+
+  test_timer.expires = jiffies + 1 * HZ;
+  test_timer.function = test_timer_func;
+  add_timer(&test_timer);
+
+  PRINT_INFO("nic_probe done\n");
+  return 0;
+
+err_request_irq:
+  pci_free_irq_vectors(pdev);
+err_alloc_irq_vectors:
+
+err_register:
+
+err_dma:
+err_ioremap:
+  pci_release_selected_regions(pdev, test_bars);
+err_request_mem_regions:
+  pci_disable_device(pdev);
+
+  return err;
+}
+
+static void nic_remove(struct pci_dev *pdev) {
+
+  PRINT_INFO("nic_remove\n");
+
+  del_timer(&test_timer);
+
+  // irq
+  // #ifndef NO_PCI
+  //   for (i = 0; i < NIC_IF_NUM; i++) {
+  //     free_irq(adapter[i]->irq_tx, netdevs[i]);
+  //     free_irq(adapter[i]->irq_rx, netdevs[i]);
+  //     free_irq(adapter[i]->irq_other, netdevs[i]);
+  //   }
+  //   pci_free_irq_vectors(pdev);
+  //   PRINT_INFO("free_irq\n");
+  // #endif
+
+  // iounmap
+  iounmap(test_io_addr);
+  pci_release_selected_regions(pdev, test_bars);
+  PRINT_INFO("iounmap\n");
+
+  pci_disable_device(pdev);
+}
+#endif
+
 static int __maybe_unused nic_suspend(struct device *dev) { return 0; }
 
 static int __maybe_unused nic_resume(struct device *dev) { return 0; }
@@ -416,11 +560,9 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
 #endif
 
   // TX
-  tx_ring->queues = NIC_TX_RING_QUEUES;
-  // tx_ring->size = sizeof(struct nic_tx_desc) * tx_ring->queues;
-  // tx_ring->size = ALIGN(tx_ring->size, 4096);
+  tx_ring->bd_size = NIC_TX_RING_QUEUES;
 
-  tx_ring->skbs = kcalloc(tx_ring->queues, sizeof(void *), GFP_KERNEL);
+  tx_ring->skbs = kcalloc(tx_ring->bd_size, sizeof(void *), GFP_KERNEL);
   if (!tx_ring->skbs) {
     PRINT_ERR("alloc tx_ring data_vas failed\n");
     err = -ENOMEM;
@@ -430,12 +572,13 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
   // TX BD
 
 #ifndef NO_PCI
-  tx_ring->bd_va =
-      dma_alloc_coherent(&pdev->dev, sizeof(struct nic_bd) * tx_ring->queues,
-                         &tx_ring->bd_pa, GFP_KERNEL);
-  memset(tx_ring->bd_va, 0, sizeof(struct nic_bd) * tx_ring->queues);
+  /* round up to nearest 4K */
+  tx_ring->bd_dma_size = ALIGN(sizeof(struct nic_bd) * tx_ring->bd_size, 4096);
+  tx_ring->bd_va = dma_alloc_coherent(&pdev->dev, tx_ring->bd_dma_size,
+                                      &tx_ring->bd_pa, GFP_KERNEL);
+  memset(tx_ring->bd_va, 0, sizeof(struct nic_bd) * tx_ring->bd_size);
 #else
-  tx_ring->bd_va = kcalloc(tx_ring->queues, sizeof(struct nic_bd), GFP_KERNEL);
+  tx_ring->bd_va = kcalloc(tx_ring->size, sizeof(struct nic_bd), GFP_KERNEL);
 #endif
 
   if (!tx_ring->bd_va) {
@@ -446,11 +589,9 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
 
   // RX
 
-  rx_ring->queues = NIC_RX_RING_QUEUES;
-  // rx_ring->size = sizeof(struct nic_rx_frame) * rx_ring->queues;
-  // rx_ring->size = ALIGN(rx_ring->size, 4096);
+  rx_ring->bd_size = NIC_RX_RING_QUEUES;
 
-  rx_ring->data_vas = kcalloc(rx_ring->queues, sizeof(void *), GFP_KERNEL);
+  rx_ring->data_vas = kcalloc(rx_ring->bd_size, sizeof(void *), GFP_KERNEL);
 
   if (!rx_ring->data_vas) {
     PRINT_ERR("alloc rx_ring vas failed\n");
@@ -463,11 +604,11 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
 
 #ifndef NO_PCI
   rx_ring->data_vas[0] = dma_alloc_coherent(
-      &pdev->dev, sizeof(struct nic_rx_frame) * rx_ring->queues, &rx_buffer_pa,
+      &pdev->dev, sizeof(struct nic_rx_frame) * rx_ring->bd_size, &rx_buffer_pa,
       GFP_KERNEL);
 #else
   rx_ring->data_vas[0] =
-      kcalloc(rx_ring->queues, sizeof(struct nic_rx_frame), GFP_KERNEL);
+      kcalloc(rx_ring->size, sizeof(struct nic_rx_frame), GFP_KERNEL);
 #endif
 
   if (!rx_ring->data_vas[0]) {
@@ -476,20 +617,23 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
     goto err_rx_buffer;
   }
 
-  for (i = 1; i < rx_ring->queues; i++) {
+  for (i = 1; i < rx_ring->bd_size; i++) {
     rx_ring->data_vas[i] =
         rx_ring->data_vas[i - 1] + sizeof(struct nic_rx_frame);
   }
 
   // RX BD
 #ifndef NO_PCI
-  rx_ring->bd_va = dma_alloc_coherent(&pdev->dev, rx_ring->queues,
+  /* round up to nearest 4K */
+  rx_ring->bd_dma_size = ALIGN(sizeof(struct nic_bd) * rx_ring->bd_size, 4096);
+
+  rx_ring->bd_va = dma_alloc_coherent(&pdev->dev, rx_ring->bd_dma_size,
                                       &rx_ring->bd_pa, GFP_KERNEL);
-  for (i = 0; i < rx_ring->queues; i++) {
+  for (i = 0; i < rx_ring->bd_size; i++) {
     rx_ring->bd_va[i].addr = rx_buffer_pa + sizeof(struct nic_rx_frame) * i;
   }
 #else
-  rx_ring->bd_va = kcalloc(rx_ring->queues, sizeof(struct nic_bd), GFP_KERNEL);
+  rx_ring->bd_va = kcalloc(rx_ring->size, sizeof(struct nic_bd), GFP_KERNEL);
 #endif
 
   if (!rx_ring->data_vas) {
@@ -498,50 +642,32 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
     goto err_rx_bd;
   }
 
-  // RX head
-#ifndef NO_PCI
-  rx_ring->head_va = dma_alloc_coherent(&pdev->dev, sizeof(*(rx_ring->head_va)),
-                                        &adapter->rx_ring.head_pa, GFP_KERNEL);
-#else
-  rx_ring->head_va = kcalloc(1, sizeof(*(rx_ring->head_va)), GFP_KERNEL);
-  rx_ring->head_pa = (dma_addr_t)NULL;
-#endif
-
-  if (!rx_ring->head_va) {
-    PRINT_ERR("dma_alloc_coherent rx_ring head failed\n");
-    err = -ENOMEM;
-    goto err_rx_head_tail;
-  }
-
   // check_64k_bound
   // TODO
 
 #ifndef NO_PCI
   // write reg
-  writeq(tx_ring->bd_pa, adapter->io_addr + NIC_MMIO_TX_BD_PA);
-  writeq(rx_ring->head_pa, adapter->io_addr + NIC_MMIO_RX_BD_HEAD_PA);
-  writeq(rx_ring->bd_pa, adapter->io_addr + NIC_MMIO_RX_BD_PA);
+  netdev_info(adapter->netdev, "tx_ring->bd_pa: %llx\n", tx_ring->bd_pa);
+  writel(tx_ring->bd_pa & 0xffffffff,
+         adapter->io_addr + NIC_DMA_CTL_TX_BD_BA_LOW);
+  writel(tx_ring->bd_pa >> 32, adapter->io_addr + NIC_DMA_CTL_TX_BD_BA_HIGH);
+  netdev_info(adapter->netdev, "rx_ring->bd_pa: %llx\n", rx_ring->bd_pa);
+  writel(rx_ring->bd_pa & 0xffffffff,
+         adapter->io_addr + NIC_DMA_CTL_RX_BD_BA_LOW);
+  writel(rx_ring->bd_pa >> 32, adapter->io_addr + NIC_DMA_CTL_RX_BD_BA_HIGH);
 
-  writel(0, adapter->io_addr + NIC_MMIO_TX_BD_TAIL);
-  writel(0, adapter->io_addr + NIC_MMIO_TX_BD_HEAD);
-
-  writel(0, adapter->io_addr + NIC_MMIO_RX_BD_HEAD);
+  // TODO: reset hw tail
+  // sync_with_hw_tail
+  tx_ring->next_to_use = readl(adapter->io_addr + NIC_DMA_CTL_TX_BD_TAIL);
+  rx_ring->next_to_use = readl(adapter->io_addr + NIC_DMA_CTL_RX_BD_TAIL);
 #endif
 
   return 0;
 
-err_rx_head_tail:
-#ifndef NO_PCI
-  dma_free_coherent(&pdev->dev, rx_ring->queues, rx_ring->data_vas,
-                    rx_ring->bd_va->addr);
-#else
-  kfree(rx_ring->bd_va);
-#endif
-
 err_rx_bd:
 #ifndef NO_PCI
-  dma_free_coherent(&pdev->dev, rx_ring->queues, rx_ring->data_vas[0],
-                    rx_ring->bd_pa);
+  dma_free_coherent(&pdev->dev, sizeof(struct nic_rx_frame) * rx_ring->bd_size,
+                    rx_ring->data_vas[0], rx_ring->bd_va[0].addr);
 #else
   kfree(rx_ring->data_vas[0]);
 #endif
@@ -551,7 +677,7 @@ err_rx_buffer:
 
 err_rx:
 #ifndef NO_PCI
-  dma_free_coherent(&pdev->dev, tx_ring->queues, tx_ring->bd_va,
+  dma_free_coherent(&pdev->dev, tx_ring->bd_dma_size, tx_ring->bd_va,
                     tx_ring->bd_pa);
 #else
   kfree(tx_ring->bd_va);
@@ -572,23 +698,21 @@ static int nic_free_queues(struct nic_adapter *adapter) {
 #ifndef NO_PCI
   struct pci_dev *pdev = adapter->pdev;
 
-  writeq(0, adapter->io_addr + NIC_MMIO_TX_BD_PA);
-  writeq(0, adapter->io_addr + NIC_MMIO_RX_BD_HEAD_PA);
-  writeq(0, adapter->io_addr + NIC_MMIO_RX_BD_PA);
+  writel(0, adapter->io_addr + NIC_DMA_CTL_TX_BD_BA_LOW);
+  writel(0, adapter->io_addr + NIC_DMA_CTL_TX_BD_BA_HIGH);
+  writel(0, adapter->io_addr + NIC_DMA_CTL_RX_BD_BA_LOW);
+  writel(0, adapter->io_addr + NIC_DMA_CTL_RX_BD_BA_HIGH);
 
-  dma_free_coherent(&pdev->dev, sizeof(*rx_ring->head_va), rx_ring->head_va,
-                    rx_ring->head_pa);
-  dma_free_coherent(&pdev->dev, rx_ring->queues, rx_ring->data_vas[0],
-                    rx_ring->bd_va[0].addr);
-  dma_free_coherent(&pdev->dev, rx_ring->queues, rx_ring->bd_va,
+  dma_free_coherent(&pdev->dev, sizeof(struct nic_rx_frame) * rx_ring->bd_size,
+                    rx_ring->data_vas[0], rx_ring->bd_va[0].addr);
+  dma_free_coherent(&pdev->dev, rx_ring->bd_dma_size, rx_ring->bd_va,
                     rx_ring->bd_pa);
   kfree(rx_ring->data_vas);
 
-  dma_free_coherent(&pdev->dev, tx_ring->queues, tx_ring->bd_va,
+  dma_free_coherent(&pdev->dev, tx_ring->bd_dma_size, tx_ring->bd_va,
                     tx_ring->bd_pa);
   kfree(tx_ring->skbs);
 #else
-  kfree(rx_ring->head_va);
   kfree(rx_ring->data_vas[0]);
   kfree(rx_ring->bd_va);
   kfree(rx_ring->data_vas);
@@ -597,9 +721,9 @@ static int nic_free_queues(struct nic_adapter *adapter) {
   kfree(tx_ring->skbs);
 #endif
 
-  tx_ring->queues = 0;
+  tx_ring->bd_size = 0;
   // tx_ring->size = 0;
-  rx_ring->queues = 0;
+  rx_ring->bd_size = 0;
   // rx_ring->size = 0;
   return 0;
 }
@@ -641,7 +765,7 @@ int nic_open(struct net_device *netdev) {
 #ifndef NO_PCI
   nic_set_int(adapter, NIC_VEC_TX, true);
   nic_set_int(adapter, NIC_VEC_RX, true);
-  nic_set_int(adapter, NIC_VEC_OTHER, true);
+  // nic_set_int(adapter, NIC_VEC_OTHER, true);
 #endif
 
   netif_start_queue(netdev);
@@ -662,7 +786,7 @@ int nic_close(struct net_device *netdev) {
 #ifndef NO_PCI
   nic_set_int(adapter, NIC_VEC_TX, false);
   nic_set_int(adapter, NIC_VEC_RX, false);
-  nic_set_int(adapter, NIC_VEC_OTHER, false);
+  // nic_set_int(adapter, NIC_VEC_OTHER, false);
 #endif
 
   netif_tx_disable(netdev);
@@ -684,12 +808,11 @@ void print_ring(void) {
     struct nic_rx_ring *rx_ring = &adapter->rx_ring;
 
     PRINT_INFO("if_id: %u\n", adapter->if_id);
-    PRINT_INFO("tx_ring->queues: %u\n", tx_ring->queues);
-    PRINT_INFO("tx_ring->head: %u\n", tx_ring->head);
-    PRINT_INFO("tx_ring->tail: %u\n", tx_ring->tail);
-    PRINT_INFO("rx_ring->queues: %u\n", rx_ring->queues);
-    PRINT_INFO("rx_ring->head: %u\n", *(rx_ring->head_va));
-    PRINT_INFO("rx_ring->tail: %u\n", rx_ring->tail);
+    PRINT_INFO("tx_ring->size: %u\n", tx_ring->size);
+    PRINT_INFO("tx_ring->next_to_use: %u\n", tx_ring->next_to_use);
+    PRINT_INFO("tx_ring->next_to_clean: %u\n", tx_ring->next_to_clean);
+    PRINT_INFO("rx_ring->size: %u\n", rx_ring->size);
+    PRINT_INFO("rx_ring->next_to_use: %u\n", rx_ring->next_to_use);
   }
 }
 
@@ -710,9 +833,11 @@ void test_copy_data(struct work_struct *work) {
 
   PRINT_INFO("test_copy_data called\n");
 
-  while (src_tx_ring->tail != src_tx_ring->head) {
-    struct nic_bd *bd = &src_tx_ring->bd_va[src_tx_ring->tail];
-    struct nic_rx_frame *frame = dst_rx_ring->data_vas[*(dst_rx_ring->head_va)];
+  while (src_tx_ring->bd_va[src_tx_ring->next_to_use].flags &
+         NIC_BD_FLAG_USED) {
+    struct nic_bd *bd = &src_tx_ring->bd_va[src_tx_ring->next_to_use];
+    struct nic_rx_frame *frame =
+        dst_rx_ring->data_vas[dst_rx_ring->next_to_use];
 
     PRINT_INFO("test_copy_data %u->%u: %u\n", src->if_id, dst->if_id, bd->len);
 
@@ -721,15 +846,17 @@ void test_copy_data(struct work_struct *work) {
       break;
     }
 
-    memmove(frame->data, src_tx_ring->skbs[src_tx_ring->tail]->data, bd->len);
+    memmove(frame->data, src_tx_ring->skbs[src_tx_ring->next_to_use]->data,
+            bd->len);
 
-    skb = src_tx_ring->skbs[src_tx_ring->tail];
+    skb = src_tx_ring->skbs[src_tx_ring->next_to_use];
     dev_kfree_skb_any(skb);
 
     // print_ring();
-    *(dst_rx_ring->head_va) =
-        (*(dst_rx_ring->head_va) + 1) % dst_rx_ring->queues;
-    src_tx_ring->tail = (src_tx_ring->tail + 1) % src_tx_ring->queues;
+    dst_rx_ring->next_to_use =
+        (dst_rx_ring->next_to_use + 1) % dst_rx_ring->size;
+    src_tx_ring->next_to_use =
+        (src_tx_ring->next_to_use + 1) % src_tx_ring->size;
   }
 
   if (napi_schedule_prep(&dst->napi)) {
@@ -745,7 +872,7 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
   struct nic_adapter *adapter = netdev_priv(netdev);
   struct nic_tx_ring *tx_ring;
   struct nic_bd *bd;
-  u16 head;
+  u16 next_to_use;
 #ifndef NO_PCI
   struct pci_dev *pdev = adapter->pdev;
 #endif
@@ -761,8 +888,8 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
    * single qdisc implementation, we can look at this again.
    */
   tx_ring = &adapter->tx_ring;
-  head = tx_ring->head;
-  bd = tx_ring->bd_va + head;
+  next_to_use = tx_ring->next_to_use;
+  bd = tx_ring->bd_va + next_to_use;
 
   /* On PCI/PCI-X HW, if packet size is less than ETH_ZLEN,
    * packets may get corrupted during padding by HW.
@@ -780,16 +907,16 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
   // TODO
 
   bd->len = skb->len;
-  tx_ring->skbs[head] = skb;
+  tx_ring->skbs[next_to_use] = skb;
 #ifndef NO_PCI
-  bd->addr = dma_map_single(&pdev->dev, tx_ring->skbs[head]->data, bd->len,
-                            DMA_TO_DEVICE);
+  bd->addr = dma_map_single(&pdev->dev, tx_ring->skbs[next_to_use]->data,
+                            bd->len, DMA_TO_DEVICE);
 #else
   // use va as pa, for test
   bd->addr = (dma_addr_t)NULL;
 #endif
 
-  tx_ring->head = (head + 1) % tx_ring->queues;
+  tx_ring->next_to_use = (next_to_use + 1) % tx_ring->bd_size;
 #ifndef NO_PCI
   /* Force memory writes to complete before letting h/w
    * know there are new descriptors to fetch.  (Only
@@ -798,7 +925,9 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
    */
   // dma_wmb();
 
-  writel(tx_ring->head, ((void *)adapter->io_addr) + NIC_MMIO_TX_BD_HEAD);
+  // TODO, delay setting tail
+  writel(tx_ring->next_to_use,
+         ((void *)adapter->io_addr) + NIC_DMA_CTL_TX_BD_TAIL);
 #else
   // for test
   {
@@ -834,8 +963,8 @@ static struct sk_buff *nic_receive_skb(struct nic_adapter *adapter) {
   struct nic_bd *bd;
   netdev_info(netdev, "nic_receive_skb\n");
 
-  frame = adapter->rx_ring.data_vas[adapter->rx_ring.tail];
-  bd = &adapter->rx_ring.bd_va[adapter->rx_ring.tail];
+  frame = adapter->rx_ring.data_vas[adapter->rx_ring.next_to_use];
+  bd = &adapter->rx_ring.bd_va[adapter->rx_ring.next_to_use];
   if (bd->len == 0) {
     netdev_info(netdev, "nic_receive_skb: data_len == 0\n");
     goto err_recv;
@@ -850,7 +979,10 @@ static struct sk_buff *nic_receive_skb(struct nic_adapter *adapter) {
   netdev_info(netdev, "nic_receive_skb->len: %u\n", skb->len);
 
 err_recv:
-  adapter->rx_ring.tail = (adapter->rx_ring.tail + 1) % adapter->rx_ring.queues;
+
+  bd->flags &= ~NIC_BD_FLAG_VALID;
+  adapter->rx_ring.next_to_use =
+      (adapter->rx_ring.next_to_use + 1) % adapter->rx_ring.bd_size;
 
   // bd->flags |= NIC_BD_FLAG_USED;
   return skb;
@@ -905,9 +1037,13 @@ static int nic_poll(struct napi_struct *napi, int budget) {
 
   rx_ring = &adapter->rx_ring;
 
-  while (*(rx_ring->head_va) != rx_ring->tail) {
-    netdev_info(adapter->netdev, "nic_poll: tail = %u, head = %u\n",
-                rx_ring->tail, *(rx_ring->head_va));
+  netdev_info(adapter->netdev,
+              "rx_ring->bd_va[rx_ring->next_to_use].flags = %u\n",
+              rx_ring->bd_va[rx_ring->next_to_use].flags);
+
+  while (rx_ring->bd_va[rx_ring->next_to_use].flags & NIC_BD_FLAG_VALID) {
+    netdev_info(adapter->netdev, "nic_poll: next_to_use = %u\n",
+                rx_ring->next_to_use);
     if (work_done >= budget) {
       break;
     }
@@ -956,13 +1092,13 @@ static int nic_set_features(struct net_device *netdev,
 
 #ifndef NO_PCI
 static void nic_set_int(struct nic_adapter *adapter, int nr, bool enable) {
-  void *csr_int_addr = adapter->io_addr + NIC_MMIO_CSR_INT + nr;
+  void *csr_int_addr = adapter->io_addr + NIC_CSR_CTL_INT_OFFSET(nr);
   if (enable) {
-    writeb(0xff, csr_int_addr);
-    netdev_info(adapter->netdev, "enable interrupt\n");
+    writel(0x01, csr_int_addr);
+    netdev_info(adapter->netdev, "enable interrupt %d\n", nr);
   } else {
-    writeb(0x0, csr_int_addr);
-    netdev_info(adapter->netdev, "disable interrupt\n");
+    writel(0x0, csr_int_addr);
+    netdev_info(adapter->netdev, "disable interrupt %d\n", nr);
   }
 }
 
@@ -1009,12 +1145,14 @@ static void nic_clean_tx_ring_work(struct work_struct *work) {
   struct nic_bd *bd_clean;
   struct sk_buff *skb_clean;
   struct nic_tx_ring *tx_ring = &adapter->tx_ring;
+  netdev_info(adapter->netdev, "nic_clean_tx_ring_work\n");
+  nic_set_int(adapter, NIC_VEC_TX, false);
   while (1) {
     if (!tx_ring->bd_va || !tx_ring->skbs) {
       break;
     }
-    bd_clean = &tx_ring->bd_va[tx_ring->tail];
-    skb_clean = tx_ring->skbs[tx_ring->tail];
+    bd_clean = &tx_ring->bd_va[tx_ring->next_to_clean];
+    skb_clean = tx_ring->skbs[tx_ring->next_to_clean];
     if (!(bd_clean->flags & NIC_BD_FLAG_USED)) {
       break;
     }
@@ -1025,9 +1163,10 @@ static void nic_clean_tx_ring_work(struct work_struct *work) {
     // bd_clean->flags &= ~NIC_BD_FLAG_USED;
     bd_clean->flags = 0;
 
-    netdev_info(adapter->netdev, "free skb %u\n", tx_ring->tail);
+    netdev_info(adapter->netdev, "free skb %u\n", tx_ring->next_to_clean);
 
-    tx_ring->tail = (tx_ring->tail + 1) % tx_ring->queues;
+    tx_ring->next_to_clean = (tx_ring->next_to_clean + 1) % tx_ring->bd_size;
   }
+  nic_set_int(adapter, NIC_VEC_TX, true);
 }
 #endif

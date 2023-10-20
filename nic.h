@@ -15,49 +15,84 @@
 
 // #define NO_PCI
 
+#ifndef NO_PCI
+
+#define PCI_FN_TEST
+
+#endif
+
 #define PCI_VENDOR_ID_MY 0x11cc
+
 #define NIC_DRIVER_NAME "nic"
+
 #define NIC_IF_NUM 2
+
 #define NIC_RX_PKT_SIZE 2048
+
 #define NIC_TX_RING_QUEUES 128
+
 #define NIC_RX_RING_QUEUES 128
 
-#define NIC_MMIO_TX_BD_HEAD 0x00
-#define NIC_MMIO_TX_BD_TAIL 0x04
-// #define NIC_MMIO_TX_BD_HEAD_PA 0x08 // reserved
-// #define NIC_MMIO_TX_BD_TAIL_PA 0x10 // reserved
-#define NIC_MMIO_TX_BD_PA 0x18
+// mmio
 
-#define NIC_MMIO_RX_BD_HEAD 0x20 // for reset
-// #define NIC_MMIO_RX_BD_TAIL 0x24 // reserved
-#define NIC_MMIO_RX_BD_HEAD_PA 0x28
-// #define NIC_MMIO_RX_BD_TAIL_PA 0x30
-#define NIC_MMIO_RX_BD_PA 0x38
+#define NIC_IF_REG_SIZE BIT(9)
 
-#define NIC_MMIO_CSR_INT 0x40
+#define NIC_PCIE_CTL_CALC_OFFSET(s, offset) (((s) << 5) + ((offset) << 2))
 
-#define NIC_MMIO_IF_REG_SIZE 0x50
+// tx
+
+#define NIC_DMA_CTL_TX_BD_BA_LOW NIC_PCIE_CTL_CALC_OFFSET(0x0, 0x0)
+
+#define NIC_DMA_CTL_TX_BD_BA_HIGH NIC_PCIE_CTL_CALC_OFFSET(0x0, 0x1)
+
+#define NIC_DMA_CTL_TX_BD_SIZE NIC_PCIE_CTL_CALC_OFFSET(0x0, 0x2)
+
+// #define NIC_DMA_CTL_TX_BD_HEAD NIC_PCIE_CTL_CALC_OFFSET(0x0, 0x3)
+
+#define NIC_DMA_CTL_TX_BD_TAIL NIC_PCIE_CTL_CALC_OFFSET(0x0, 0x4)
+
+// rx
+
+#define NIC_DMA_CTL_RX_BD_BA_LOW NIC_PCIE_CTL_CALC_OFFSET(0x1, 0x0)
+
+#define NIC_DMA_CTL_RX_BD_BA_HIGH NIC_PCIE_CTL_CALC_OFFSET(0x1, 0x1)
+
+#define NIC_DMA_CTL_RX_BD_SIZE NIC_PCIE_CTL_CALC_OFFSET(0x1, 0x2)
+
+// #define NIC_DMA_CTL_RX_BD_HEAD NIC_PCIE_CTL_CALC_OFFSET(0x1, 0x3)
+
+#define NIC_DMA_CTL_RX_BD_TAIL NIC_PCIE_CTL_CALC_OFFSET(0x1, 0x4)
+
+// interrupt
+
+#define NIC_CSR_CTL_INT_OFFSET(tx_rx) NIC_PCIE_CTL_CALC_OFFSET(0x2, (tx_rx))
+
+// vector
 
 #define NIC_VEC_TX 0
+
 #define NIC_VEC_RX 1
+
 #define NIC_VEC_OTHER 2
 
 #define NIC_VEC_IF_SIZE 4
 
 #define PRINT_INFO(fmt, ...)                                                   \
   printk(KERN_INFO NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
+
 #define PRINT_ERR(fmt, ...)                                                    \
   printk(KERN_ERR NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
+
 #define PRINT_WARN(fmt, ...)                                                   \
   printk(KERN_WARNING NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
 
-// #define NIC_BD_FLAG_VALID BIT(0)
+#define NIC_BD_FLAG_VALID BIT(0)
 #define NIC_BD_FLAG_USED BIT(1)
 
 struct nic_bd {
   dma_addr_t addr;
-  u16 len; // for tx, len is the length of the packet
-  u16 flags;
+  u32 len; // for tx, len is the length of the packet
+  u32 flags;
 };
 
 struct nic_rx_frame {
@@ -69,11 +104,11 @@ struct nic_tx_ring {
   struct nic_bd *bd_va;
   dma_addr_t bd_pa;
 
-  // u16 size;
-  u16 queues;
+  u16 bd_size;
+  u16 bd_dma_size;
 
-  u16 head;
-  u16 tail; // reserved, for test
+  u16 next_to_use;
+  u16 next_to_clean;
 };
 
 struct nic_rx_ring {
@@ -81,12 +116,10 @@ struct nic_rx_ring {
   struct nic_bd *bd_va;
   dma_addr_t bd_pa;
 
-  u16 queues;
+  u16 bd_size;
+  u16 bd_dma_size;
 
-  u16 *head_va;
-  dma_addr_t head_pa;
-
-  u16 tail;
+  u16 next_to_use;
 };
 
 struct nic_adapter {
@@ -124,7 +157,6 @@ struct test_work_ctx {
 };
 
 #endif
-
 
 struct clean_work_ctx {
   struct work_struct work;
