@@ -11,7 +11,7 @@ MODULE_VERSION("0.01");
 char nic_driver_name[] = NIC_DRIVER_NAME;
 
 static const struct pci_device_id nic_pci_tbl[] = {
-    {PCI_DEVICE(PCI_VENDOR_ID_MY, 0x1234)},
+    {PCI_DEVICE(PCI_VENDOR_ID_MY, 0x0755)},
     /* required last entry */
     {
         0,
@@ -52,6 +52,8 @@ static struct pci_driver nic_driver = {.name = nic_driver_name,
                                        .err_handler = &nic_err_handler};
 #endif
 
+#ifndef PCI_FN_TEST
+
 int nic_setup_all_resources(struct nic_adapter *adapter);
 void nic_free_all_resources(struct nic_adapter *adapter);
 
@@ -70,12 +72,12 @@ static int nic_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd);
 // static int nic_vlan_rx_kill_vid(struct net_device *netdev, __be16 proto,
 //                                 u16 vid);
 static void nic_netpoll(struct net_device *netdev);
-static int nic_poll(struct napi_struct *napi, int budget);
 static netdev_features_t nic_fix_features(struct net_device *netdev,
                                           netdev_features_t features);
 static int nic_set_features(struct net_device *netdev,
                             netdev_features_t features);
 
+static int nic_poll(struct napi_struct *napi, int budget);
 #ifndef NO_PCI
 static void nic_set_int(struct nic_adapter *adapter, int nr, bool enable);
 static irqreturn_t nic_interrupt_tx(int irq, void *data);
@@ -102,7 +104,7 @@ static const struct net_device_ops nic_netdev_ops = {
     .ndo_fix_features = nic_fix_features,
     .ndo_set_features = nic_set_features,
 };
-
+#endif // PCI_FN_TEST
 #ifdef NO_PCI
 static struct net_device *test_netdev[NIC_IF_NUM];
 #endif
@@ -391,13 +393,13 @@ struct timer_list test_timer;
 
 void test_timer_func(struct timer_list *t) {
   // PRINT_INFO("test_timer_func\n");
-  test_io_addr[0] = 0x55aa;
+  // test_io_addr[0] = 0x55aa;
+  writel(0x55aa, test_io_addr);
   mod_timer(&test_timer, jiffies + 1); // max frequency
 }
 
 static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
   int err = 0;
-  size_t i;
   PRINT_INFO("nic_probe\n");
 
   // pcie
@@ -441,55 +443,12 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
   }
   PRINT_INFO("pci_set_dma_mask\n");
 
-  // err = pci_alloc_irq_vectors(pdev, NIC_VEC_IF_SIZE * NIC_IF_NUM,
-  //                             NIC_VEC_IF_SIZE * NIC_IF_NUM, PCI_IRQ_MSI);
-  // if (err < 0) {
-  //   PRINT_ERR("pci_alloc_irq_vectors failed\n");
-  //   goto err_alloc_irq_vectors;
-  // }
-  // PRINT_INFO("pci_alloc_irq_vectors\n");
-
-  // for (i = 0; i < NIC_IF_NUM; i++) {
-  //   adapter[i]->irq_tx = pci_irq_vector(pdev, NIC_VEC_IF_SIZE * i +
-  //   NIC_VEC_TX); err = request_irq(adapter[i]->irq_tx, nic_interrupt_tx, 0,
-  //   nic_driver_name,
-  //                     netdevs[i]);
-  //   if (err) {
-  //     PRINT_ERR("request_irq %zu nic_interrupt_tx failed\n", i);
-  //     goto err_request_irq;
-  //   }
-
-  //   adapter[i]->irq_rx = pci_irq_vector(pdev, NIC_VEC_IF_SIZE * i +
-  //   NIC_VEC_RX); err = request_irq(adapter[i]->irq_rx, nic_interrupt_rx, 0,
-  //   nic_driver_name,
-  //                     netdevs[i]);
-  //   if (err) {
-  //     PRINT_ERR("request_irq %zu nic_interrupt_rx failed\n", i);
-  //     goto err_request_irq;
-  //   }
-
-  //   adapter[i]->irq_other =
-  //       pci_irq_vector(pdev, NIC_VEC_IF_SIZE * i + NIC_VEC_OTHER);
-  //   err = request_irq(adapter[i]->irq_other, nic_interrupt_other, 0,
-  //                     nic_driver_name, netdevs[i]);
-  //   if (err) {
-  //     PRINT_ERR("request_irq %zu nic_interrupt_other failed\n", i);
-  //     goto err_request_irq;
-  //   }
-  // }
-
   test_timer.expires = jiffies + 1 * HZ;
   test_timer.function = test_timer_func;
   add_timer(&test_timer);
 
   PRINT_INFO("nic_probe done\n");
   return 0;
-
-err_request_irq:
-  pci_free_irq_vectors(pdev);
-err_alloc_irq_vectors:
-
-err_register:
 
 err_dma:
 err_ioremap:
@@ -505,17 +464,6 @@ static void nic_remove(struct pci_dev *pdev) {
   PRINT_INFO("nic_remove\n");
 
   del_timer(&test_timer);
-
-  // irq
-  // #ifndef NO_PCI
-  //   for (i = 0; i < NIC_IF_NUM; i++) {
-  //     free_irq(adapter[i]->irq_tx, netdevs[i]);
-  //     free_irq(adapter[i]->irq_rx, netdevs[i]);
-  //     free_irq(adapter[i]->irq_other, netdevs[i]);
-  //   }
-  //   pci_free_irq_vectors(pdev);
-  //   PRINT_INFO("free_irq\n");
-  // #endif
 
   // iounmap
   iounmap(test_io_addr);
@@ -544,6 +492,8 @@ static pci_ers_result_t nic_io_slot_reset(struct pci_dev *pdev) {
 }
 
 static void nic_io_resume(struct pci_dev *pdev) {}
+
+#ifndef PCI_FN_TEST
 
 // resource management
 
@@ -992,6 +942,7 @@ err_recv:
   return skb;
 }
 
+
 static void nic_set_rx_mode(struct net_device *netdev) {
   netdev_info(netdev, "nic_set_rx_mode\n");
 }
@@ -1173,4 +1124,6 @@ static void nic_clean_tx_ring_work(struct work_struct *work) {
   }
   nic_set_int(adapter, NIC_VEC_TX, true);
 }
+#endif // PCI_FN_TEST
+
 #endif

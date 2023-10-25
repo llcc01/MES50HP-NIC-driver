@@ -17,11 +17,11 @@
 
 #ifndef NO_PCI
 
-#define PCI_FN_TEST
+// #define PCI_FN_TEST
 
 #endif
 
-#define PCI_VENDOR_ID_MY 0x11cc
+#define PCI_VENDOR_ID_MY 0x0755
 
 #define NIC_DRIVER_NAME "nic"
 
