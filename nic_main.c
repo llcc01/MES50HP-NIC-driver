@@ -859,12 +859,11 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
 
   // mss
   // TODO
-
-  bd->len = skb->len;
+  bd->len = cpu_to_le16(skb->len);
   tx_ring->skbs[next_to_use] = skb;
 #ifndef NO_PCI
-  bd->addr = dma_map_single(&pdev->dev, tx_ring->skbs[next_to_use]->data,
-                            bd->len, DMA_TO_DEVICE);
+  bd->addr = cpu_to_le64(dma_map_single(&pdev->dev, tx_ring->skbs[next_to_use]->data,
+                            skb->len, DMA_TO_DEVICE));
 #else
   // use va as pa, for test
   bd->addr = (dma_addr_t)NULL;
@@ -915,21 +914,23 @@ static struct sk_buff *nic_receive_skb(struct nic_adapter *adapter) {
   struct sk_buff *skb = NULL;
   struct nic_rx_frame *frame;
   struct nic_bd *bd;
+  u16 len;
   netdev_info(netdev, "nic_receive_skb\n");
 
   frame = adapter->rx_ring.data_vas[adapter->rx_ring.next_to_use];
   bd = &adapter->rx_ring.bd_va[adapter->rx_ring.next_to_use];
-  if (bd->len == 0) {
+  len = le16_to_cpu(bd->len);
+  if (len == 0) {
     netdev_info(netdev, "nic_receive_skb: data_len == 0\n");
     goto err_recv;
   }
 
-  skb = napi_alloc_skb(&adapter->napi, bd->len);
+  skb = napi_alloc_skb(&adapter->napi, len);
   if (!skb) {
     netdev_err(netdev, "napi_alloc_skb failed\n");
     goto err_recv;
   }
-  skb_put_data(skb, frame->data, bd->len);
+  skb_put_data(skb, frame->data, len);
   netdev_info(netdev, "nic_receive_skb->len: %u\n", skb->len);
 
 err_recv:
@@ -941,7 +942,6 @@ err_recv:
   // bd->flags |= NIC_BD_FLAG_USED;
   return skb;
 }
-
 
 static void nic_set_rx_mode(struct net_device *netdev) {
   netdev_info(netdev, "nic_set_rx_mode\n");

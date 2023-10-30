@@ -90,9 +90,11 @@
 #define NIC_BD_FLAG_USED BIT(1)
 
 struct nic_bd {
+  union {
+    u32 flags;
+    u16 len; // for tx, len is the length of the packet
+  };
   dma_addr_t addr;
-  u32 len; // for tx, len is the length of the packet
-  u32 flags;
 };
 
 struct nic_rx_frame {
