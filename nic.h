@@ -12,6 +12,7 @@
 #include <linux/spinlock_types.h>
 #include <linux/stddef.h>
 #include <linux/types.h>
+#include <linux/cdev.h>
 
 // #define NO_PCI
 
@@ -23,7 +24,7 @@
 
 #define PCI_VENDOR_ID_MY 0x0755
 
-#define NIC_DRIVER_NAME "nic"
+#define NIC_DRIVER_NAME "pangonic"
 
 #define NIC_IF_NUM 2
 
@@ -33,49 +34,6 @@
 
 #define NIC_RX_RING_QUEUES 128
 
-// mmio
-
-#define NIC_IF_REG_SIZE BIT(9)
-
-#define NIC_PCIE_CTL_CALC_OFFSET(s, offset) (((s) << 5) + ((offset) << 2))
-
-// tx
-
-#define NIC_DMA_CTL_TX_BD_BA_LOW NIC_PCIE_CTL_CALC_OFFSET(0x0, 0x0)
-
-#define NIC_DMA_CTL_TX_BD_BA_HIGH NIC_PCIE_CTL_CALC_OFFSET(0x0, 0x1)
-
-#define NIC_DMA_CTL_TX_BD_SIZE NIC_PCIE_CTL_CALC_OFFSET(0x0, 0x2)
-
-// #define NIC_DMA_CTL_TX_BD_HEAD NIC_PCIE_CTL_CALC_OFFSET(0x0, 0x3)
-
-#define NIC_DMA_CTL_TX_BD_TAIL NIC_PCIE_CTL_CALC_OFFSET(0x0, 0x4)
-
-// rx
-
-#define NIC_DMA_CTL_RX_BD_BA_LOW NIC_PCIE_CTL_CALC_OFFSET(0x1, 0x0)
-
-#define NIC_DMA_CTL_RX_BD_BA_HIGH NIC_PCIE_CTL_CALC_OFFSET(0x1, 0x1)
-
-#define NIC_DMA_CTL_RX_BD_SIZE NIC_PCIE_CTL_CALC_OFFSET(0x1, 0x2)
-
-// #define NIC_DMA_CTL_RX_BD_HEAD NIC_PCIE_CTL_CALC_OFFSET(0x1, 0x3)
-
-#define NIC_DMA_CTL_RX_BD_TAIL NIC_PCIE_CTL_CALC_OFFSET(0x1, 0x4)
-
-// interrupt
-
-#define NIC_CSR_CTL_INT_OFFSET(tx_rx) NIC_PCIE_CTL_CALC_OFFSET(0x2, (tx_rx))
-
-// vector
-
-#define NIC_VEC_TX 0
-
-#define NIC_VEC_RX 1
-
-#define NIC_VEC_OTHER 2
-
-#define NIC_VEC_IF_SIZE 4
 
 #define PRINT_INFO(fmt, ...)                                                   \
   printk(KERN_INFO NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
@@ -147,7 +105,6 @@ struct nic_adapter {
   u64 io_size;
   int irq_tx;
   int irq_rx;
-  int irq_other;
 };
 
 #ifdef NO_PCI
@@ -163,6 +120,13 @@ struct test_work_ctx {
 struct clean_work_ctx {
   struct work_struct work;
   struct nic_adapter *adapter;
+};
+
+struct nic_drvdata {
+  struct cdev c_dev;
+  dev_t c_dev_no;
+  struct class *c_dev_class;
+  struct net_device *netdevs[NIC_IF_NUM];
 };
 
 void nic_set_ethtool_ops(struct net_device *netdev);

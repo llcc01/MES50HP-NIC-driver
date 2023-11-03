@@ -109,7 +109,7 @@
       "/home/lc/git/nic/nic_main.o",
       "/home/lc/git/nic/nic_main.c"
     ],
-    "directory": "/usr/src/linux-headers-6.2.0-34-generic",
+    "directory": "/usr/src/linux-headers-6.2.0-35-generic",
     "file": "/home/lc/git/nic/nic_main.c",
     "output": "/home/lc/git/nic/nic_main.o"
   },
@@ -227,7 +227,7 @@
       "/home/lc/git/nic/nic.mod.o",
       "/home/lc/git/nic/nic.mod.c"
     ],
-    "directory": "/usr/src/linux-headers-6.2.0-34-generic",
+    "directory": "/usr/src/linux-headers-6.2.0-35-generic",
     "file": "/home/lc/git/nic/nic.mod.c",
     "output": "/home/lc/git/nic/nic.mod.o"
   }

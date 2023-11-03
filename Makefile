@@ -1,6 +1,6 @@
 obj-m += nic.o
 
-nic-objs := nic_main.o nic_ethtool.o
+nic-objs := nic_main.o nic_ethtool.o nic_cdev.o nic_hw.o
 
 all:
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
