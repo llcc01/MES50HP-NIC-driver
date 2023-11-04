@@ -81,7 +81,6 @@ static int nic_set_features(struct net_device *netdev,
 
 static int nic_poll(struct napi_struct *napi, int budget);
 #ifndef NO_PCI
-static void nic_set_int(struct nic_adapter *adapter, int nr, bool enable);
 static irqreturn_t nic_interrupt_tx(int irq, void *data);
 static irqreturn_t nic_interrupt_rx(int irq, void *data);
 static void nic_clean_tx_ring_work(struct work_struct *work);
@@ -216,7 +215,7 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
   // ioremap
   adapter[0]->io_size = pci_resource_len(pdev, 0);
   adapter[0]->io_base = pci_resource_start(pdev, 0);
-  adapter[0]->io_addr = pci_ioremap_bar(pdev, 0);
+  adapter[0]->io_addr = pci_ioremap_bar(pdev, 0) + NIC_CTL_ADDR(NIC_FUNC_ID_PCIE, 0, 0);
   if (!adapter[0]->io_addr) {
     PRINT_ERR("pci_ioremap_bar failed\n");
     err = -ENOMEM;
@@ -225,7 +224,7 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
   for (i = 1; i < NIC_IF_NUM; i++) {
     adapter[i]->io_size = adapter[0]->io_size;
     adapter[i]->io_base = adapter[0]->io_base;
-    adapter[i]->io_addr = adapter[i - 1]->io_addr + NIC_IF_REG_SIZE;
+    adapter[i]->io_addr = adapter[0]->io_addr + NIC_CTL_ADDR(0, i, 0);
   }
   PRINT_INFO("pci_ioremap\n");
 
@@ -246,7 +245,8 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
     netif_napi_add(drvdata->netdevs[i], &adapter[i]->napi, nic_poll);
 #else
-    netif_napi_add(drvdata->netdevs[i], &adapter[i]->napi, nic_poll, NAPI_POLL_WEIGHT);
+    netif_napi_add(drvdata->netdevs[i], &adapter[i]->napi, nic_poll,
+                   NAPI_POLL_WEIGHT);
 #endif
     // eth_hw_addr_set(netdev[i], adapter[i]->mac_addr);
     eth_hw_addr_random(drvdata->netdevs[i]);
@@ -296,6 +296,15 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
     }
   }
 
+  // resource management
+  for (i = 0; i < NIC_IF_NUM; i++) {
+    err = nic_setup_all_resources(adapter[i]);
+    if (err) {
+      PRINT_ERR("nic_setup_all_resources %zu failed\n", i);
+      goto err_setup_all_resources;
+    }
+  }
+
   // cdev
   err = nic_init_cdev(drvdata);
   if (err) {
@@ -310,6 +319,11 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 
 #ifndef NO_PCI
 err_cdev:
+
+  for (i = 0; i < NIC_IF_NUM; i++) {
+    nic_free_all_resources(adapter[i]);
+  }
+err_setup_all_resources:
 
   for (i = 0; i < NIC_IF_NUM; i++) {
     free_irq(adapter[i]->irq_tx, drvdata->netdevs[i]);
@@ -358,6 +372,7 @@ static void nic_remove(struct pci_dev *pdev) {
   drvdata = pci_get_drvdata(pdev);
   for (i = 0; i < NIC_IF_NUM; i++) {
     adapter[i] = netdev_priv(drvdata->netdevs[i]);
+    nic_free_all_resources(adapter[i]);
   }
   nic_exit_cdev(drvdata);
 #else
@@ -617,11 +632,13 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
 
 #ifndef NO_PCI
   // write reg
-  
+  // nic_set_hw(adapter);
 
   // sync_with_hw_tail
-  tx_ring->next_to_use = readl(adapter->io_addr + NIC_DMA_CTL_TX_BD_TAIL);
-  rx_ring->next_to_use = readl(adapter->io_addr + NIC_DMA_CTL_RX_BD_TAIL);
+  tx_ring->next_to_use =
+      readl(adapter->io_addr + NIC_REG_TO_ADDR(NIC_PCIE_REG_TX_BD_TAIL));
+  rx_ring->next_to_use =
+      readl(adapter->io_addr + NIC_REG_TO_ADDR(NIC_PCIE_REG_RX_BD_TAIL));
 #endif
 
   return 0;
@@ -660,10 +677,7 @@ static int nic_free_queues(struct nic_adapter *adapter) {
 #ifndef NO_PCI
   struct pci_dev *pdev = adapter->pdev;
 
-  writel(0, adapter->io_addr + NIC_DMA_CTL_TX_BD_BA_LOW);
-  writel(0, adapter->io_addr + NIC_DMA_CTL_TX_BD_BA_HIGH);
-  writel(0, adapter->io_addr + NIC_DMA_CTL_RX_BD_BA_LOW);
-  writel(0, adapter->io_addr + NIC_DMA_CTL_RX_BD_BA_HIGH);
+  nic_unset_hw(adapter);
 
   dma_free_coherent(&pdev->dev, sizeof(struct nic_rx_frame) * rx_ring->bd_size,
                     rx_ring->data_vas[0], rx_ring->bd_va[0].addr);
@@ -712,15 +726,9 @@ void nic_free_all_resources(struct nic_adapter *adapter) {
 
 int nic_open(struct net_device *netdev) {
   struct nic_adapter *adapter = netdev_priv(netdev);
-  int err;
   netdev_info(netdev, "nic_open\n");
 
   netif_carrier_off(netdev);
-
-  err = nic_setup_all_resources(adapter);
-  if (err) {
-    goto err_setup;
-  }
 
   napi_enable(&adapter->napi);
 
@@ -736,9 +744,6 @@ int nic_open(struct net_device *netdev) {
   netdev_info(netdev, "netif_carrier_on\n");
 
   return 0;
-
-err_setup:
-  return err;
 }
 
 int nic_close(struct net_device *netdev) {
@@ -754,8 +759,6 @@ int nic_close(struct net_device *netdev) {
   netif_tx_disable(netdev);
   netif_carrier_off(netdev);
   napi_disable(&adapter->napi);
-
-  nic_free_all_resources(adapter);
 
   return 0;
 }
@@ -888,7 +891,7 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
 
   // TODO, delay setting tail
   writel(tx_ring->next_to_use,
-         ((void *)adapter->io_addr) + NIC_DMA_CTL_TX_BD_TAIL);
+         ((void *)adapter->io_addr) + NIC_REG_TO_ADDR(NIC_PCIE_REG_TX_BD_TAIL));
 #else
   // for test
   {
@@ -1001,7 +1004,7 @@ static int nic_poll(struct napi_struct *napi, int budget) {
   rx_ring = &adapter->rx_ring;
 
   netdev_info(adapter->netdev,
-              "rx_ring->bd_va[rx_ring->next_to_use].flags = %u\n",
+              "rx_ring->bd_va[rx_ring->next_to_use].flags = %llu\n",
               rx_ring->bd_va[rx_ring->next_to_use].flags);
 
   while (rx_ring->bd_va[rx_ring->next_to_use].flags & NIC_BD_FLAG_VALID) {
@@ -1054,16 +1057,6 @@ static int nic_set_features(struct net_device *netdev,
 }
 
 #ifndef NO_PCI
-static void nic_set_int(struct nic_adapter *adapter, int nr, bool enable) {
-  void *csr_int_addr = adapter->io_addr + NIC_CSR_CTL_INT_OFFSET(nr);
-  if (enable) {
-    writel(0x01, csr_int_addr);
-    netdev_info(adapter->netdev, "enable interrupt %d\n", nr);
-  } else {
-    writel(0x0, csr_int_addr);
-    netdev_info(adapter->netdev, "disable interrupt %d\n", nr);
-  }
-}
 
 static irqreturn_t nic_interrupt_tx(int irq, void *data) {
   struct net_device *netdev = data;

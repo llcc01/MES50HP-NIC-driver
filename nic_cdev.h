@@ -4,11 +4,15 @@
 #include "nic.h"
 #include <linux/cdev.h>
 
-#define NIC_IOC_MAGIC 'S'
-#define NIC_IOC_NR_SET_HW 1
 
 int nic_init_cdev(struct nic_drvdata *drvdata);
 
 void nic_exit_cdev(struct nic_drvdata *drvdata);
+
+struct nic_cdev_data {
+  struct cdev *cdev;
+  int last_cmd;
+  u16 if_id;
+};
 
 #endif

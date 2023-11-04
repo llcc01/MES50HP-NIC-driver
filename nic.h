@@ -14,6 +14,8 @@
 #include <linux/types.h>
 #include <linux/cdev.h>
 
+#include "common.h"
+
 // #define NO_PCI
 
 #ifndef NO_PCI
@@ -23,16 +25,6 @@
 #endif
 
 #define PCI_VENDOR_ID_MY 0x0755
-
-#define NIC_DRIVER_NAME "pangonic"
-
-#define NIC_IF_NUM 2
-
-#define NIC_RX_PKT_SIZE 2048
-
-#define NIC_TX_RING_QUEUES 128
-
-#define NIC_RX_RING_QUEUES 128
 
 
 #define PRINT_INFO(fmt, ...)                                                   \
@@ -44,20 +36,7 @@
 #define PRINT_WARN(fmt, ...)                                                   \
   printk(KERN_WARNING NIC_DRIVER_NAME ": " fmt, ##__VA_ARGS__)
 
-#define NIC_BD_FLAG_VALID BIT(0)
-#define NIC_BD_FLAG_USED BIT(1)
 
-struct nic_bd {
-  union {
-    u32 flags;
-    u16 len; // for tx, len is the length of the packet
-  };
-  dma_addr_t addr;
-};
-
-struct nic_rx_frame {
-  u8 data[NIC_RX_PKT_SIZE];
-};
 
 struct nic_tx_ring {
   struct sk_buff **skbs;

@@ -1,4 +1,5 @@
 #include "nic_cdev.h"
+#include "common.h"
 #include "nic.h"
 #include "nic_hw.h"
 
@@ -72,8 +73,12 @@ void nic_exit_cdev(struct nic_drvdata *drvdata) {
 }
 
 int nic_cdev_open(struct inode *inode, struct file *filp) {
+  struct nic_cdev_data *cdev_data;
   PRINT_INFO("nic_cdev_open\n");
-  filp->private_data = inode->i_cdev;
+  cdev_data = kzalloc(sizeof(struct nic_cdev_data), GFP_KERNEL);
+  cdev_data->cdev = inode->i_cdev;
+
+  filp->private_data = cdev_data;
   return 0;
 }
 
@@ -84,7 +89,31 @@ int nic_cdev_release(struct inode *inode, struct file *filp) {
 
 ssize_t nic_cdev_read(struct file *filp, char __user *buf, size_t count,
                       loff_t *f_pos) {
+  struct nic_cdev_data *cdev_data = filp->private_data;
+  struct nic_drvdata *drvdata =
+      container_of(cdev_data->cdev, struct nic_drvdata, c_dev);
+  struct nic_adapter *adapter = netdev_priv(drvdata->netdevs[cdev_data->if_id]);
+  int err;
   PRINT_INFO("nic_cdev_read\n");
+
+  switch (_IOC_NR(cdev_data->last_cmd)) {
+  case NIC_IOC_NR_RX_BD:
+    if (*f_pos + count >= sizeof(struct nic_bd) * NIC_RX_RING_QUEUES) {
+      PRINT_ERR("uio %d: read rx bd failed, overflow\n", cdev_data->if_id);
+      return 0;
+    }
+    err = copy_to_user(buf, adapter->rx_ring.bd_va, count);
+    if (err) {
+      PRINT_ERR("uio %d: copy_to_user failed\n", cdev_data->if_id);
+      return -EFAULT;
+    }
+    return count;
+    break;
+  default:
+    PRINT_ERR("invalid read cmd\n");
+    break;
+  }
+
   return 0;
 }
 
@@ -95,21 +124,30 @@ ssize_t nic_cdev_write(struct file *filp, const char __user *buf, size_t count,
 }
 
 long nic_cdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
-  struct cdev *cdev = filp->private_data;
+  struct nic_cdev_data *cdev_data = filp->private_data;
+  struct cdev *cdev = cdev_data->cdev;
   struct nic_drvdata *drvdata = container_of(cdev, struct nic_drvdata, c_dev);
   int i;
-  PRINT_INFO("nic_cdev_ioctl\n");
+  // PRINT_INFO("nic_cdev_ioctl\n");
   if (_IOC_TYPE(cmd) != NIC_IOC_MAGIC) {
     return -ENOTTY;
   }
 
+  cdev_data->last_cmd = cmd;
+
   switch (_IOC_NR(cmd)) {
   case NIC_IOC_NR_SET_HW:
-    PRINT_INFO("NIC_IOC_NR_SET_HW\n");
+    // PRINT_INFO("NIC_IOC_NR_SET_HW\n");
     for (i = 0; i < NIC_IF_NUM; i++) {
       struct nic_adapter *adapter = netdev_priv(drvdata->netdevs[i]);
       nic_set_hw(adapter);
     }
+    break;
+  case NIC_IOC_NR_RX_BD:
+    // PRINT_INFO("NIC_IOC_NR_RX_BD\n");
+    cdev_data->if_id = arg;
+    break;
+  default:
     break;
   }
   return 0;
