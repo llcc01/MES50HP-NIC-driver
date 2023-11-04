@@ -598,5 +598,15 @@
     "directory": "/usr/src/linux-headers-6.2.0-36-generic",
     "file": "/home/lc/git/nic/nic.mod.c",
     "output": "/home/lc/git/nic/nic.mod.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-c",
+      "-I../",
+      "app.c"
+    ],
+    "directory": "/home/lc/git/nic/app",
+    "file": "/home/lc/git/nic/app/app.c"
   }
 ]

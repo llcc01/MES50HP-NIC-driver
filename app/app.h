@@ -2,11 +2,9 @@
 #define _APP_H_
 
 #include <linux/ioctl.h> 
+#include "common.h"
 
-#define APP_DRIVER_NAME "pangonic"
-
-#define APP_IOC_MAGIC 'S'
-#define APP_IOC_NR_SET_HW 1
-
+#define APP_IOC(fd,nr) ioctl(fd, _IOWR(NIC_IOC_MAGIC, nr, int), NULL);
+#define APP_IOC_INT(fd,nr,arg) ioctl(fd, _IOWR(NIC_IOC_MAGIC, nr, int), arg);
 
 #endif
