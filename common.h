@@ -18,9 +18,9 @@ typedef uint64_t dma_addr_t;
 
 #define NIC_RX_PKT_SIZE 2048
 
-#define NIC_TX_RING_QUEUES 128
+#define NIC_TX_RING_QUEUES 8
 
-#define NIC_RX_RING_QUEUES 128
+#define NIC_RX_RING_QUEUES 8
 
 #define NIC_IOC_MAGIC 'S'
 

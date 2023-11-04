@@ -22,6 +22,8 @@
 
 // #define PCI_FN_TEST
 
+#define NO_INT
+
 #endif
 
 #define PCI_VENDOR_ID_MY 0x0755

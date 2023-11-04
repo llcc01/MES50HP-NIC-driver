@@ -94,7 +94,7 @@ ssize_t nic_cdev_read(struct file *filp, char __user *buf, size_t count,
       container_of(cdev_data->cdev, struct nic_drvdata, c_dev);
   struct nic_adapter *adapter = netdev_priv(drvdata->netdevs[cdev_data->if_id]);
   int err;
-  PRINT_INFO("nic_cdev_read\n");
+  // PRINT_INFO("nic_cdev_read\n");
 
   switch (_IOC_NR(cdev_data->last_cmd)) {
   case NIC_IOC_NR_RX_BD:

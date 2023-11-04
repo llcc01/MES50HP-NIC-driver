@@ -264,6 +264,8 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
   PRINT_INFO("register netdev\n");
 
 #ifndef NO_PCI
+
+#ifndef NO_INT
   // irq
   err = pci_alloc_irq_vectors(pdev, NIC_VEC_IF_SIZE * NIC_IF_NUM,
                               NIC_VEC_IF_SIZE * NIC_IF_NUM, PCI_IRQ_MSI);
@@ -295,6 +297,7 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
       goto err_request_irq;
     }
   }
+#endif // NO_INT
 
   // resource management
   for (i = 0; i < NIC_IF_NUM; i++) {
@@ -950,7 +953,7 @@ err_recv:
   adapter->rx_ring.next_to_use =
       (adapter->rx_ring.next_to_use + 1) % adapter->rx_ring.bd_size;
 
-  // bd->flags |= NIC_BD_FLAG_USED;
+  bd->flags |= NIC_BD_FLAG_USED;
   return skb;
 }
 
@@ -1109,9 +1112,8 @@ static void nic_clean_tx_ring_work(struct work_struct *work) {
     dma_unmap_single(&adapter->pdev->dev, bd_clean->addr, bd_clean->len,
                      DMA_TO_DEVICE);
     dev_kfree_skb_any(skb_clean);
-    // bd_clean->flags &= ~NIC_BD_FLAG_VALID;
-    // bd_clean->flags &= ~NIC_BD_FLAG_USED;
-    bd_clean->flags = 0;
+    bd_clean->flags &= ~NIC_BD_FLAG_VALID;
+    bd_clean->flags &= ~NIC_BD_FLAG_USED;
 
     netdev_info(adapter->netdev, "free skb %u\n", tx_ring->next_to_clean);
 
@@ -1122,3 +1124,4 @@ static void nic_clean_tx_ring_work(struct work_struct *work) {
 #endif // PCI_FN_TEST
 
 #endif
+  
