@@ -384,12 +384,14 @@ static void nic_remove(struct pci_dev *pdev) {
 
   // irq
 #ifndef NO_PCI
+#ifndef NO_INT
   for (i = 0; i < NIC_IF_NUM; i++) {
     free_irq(adapter[i]->irq_tx, drvdata->netdevs[i]);
     free_irq(adapter[i]->irq_rx, drvdata->netdevs[i]);
   }
   pci_free_irq_vectors(pdev);
   PRINT_INFO("free_irq\n");
+#endif // NO_INT
 #endif
 
   // net device
@@ -733,6 +735,9 @@ int nic_open(struct net_device *netdev) {
 
   netif_carrier_off(netdev);
 
+  // test
+  return 0;
+
   napi_enable(&adapter->napi);
 
 #ifndef NO_PCI
@@ -752,6 +757,9 @@ int nic_open(struct net_device *netdev) {
 int nic_close(struct net_device *netdev) {
   struct nic_adapter *adapter = netdev_priv(netdev);
   netdev_info(netdev, "nic_close\n");
+
+  // test
+  return 0;
 
 #ifndef NO_PCI
   nic_set_int(adapter, NIC_VEC_TX, false);

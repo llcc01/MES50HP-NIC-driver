@@ -12,3 +12,4 @@
 *~
 .cache
 app/app
+.vscode-ctags
