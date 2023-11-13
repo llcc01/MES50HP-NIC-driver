@@ -22,7 +22,7 @@
 
 // #define PCI_FN_TEST
 
-#define NO_INT
+// #define NO_INT
 
 #endif
 
@@ -108,6 +108,7 @@ struct nic_drvdata {
   dev_t c_dev_no;
   struct class *c_dev_class;
   struct net_device *netdevs[NIC_IF_NUM];
+  bool uio_enabled;
 };
 
 void nic_set_ethtool_ops(struct net_device *netdev);

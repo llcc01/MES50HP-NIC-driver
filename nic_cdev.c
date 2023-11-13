@@ -2,6 +2,9 @@
 #include "common.h"
 #include "nic.h"
 #include "nic_hw.h"
+#include <linux/semaphore.h>
+
+static struct semaphore raw_sem;
 
 int nic_cdev_open(struct inode *inode, struct file *filp);
 int nic_cdev_release(struct inode *inode, struct file *filp);
@@ -26,6 +29,8 @@ int nic_init_cdev(struct nic_drvdata *drvdata) {
   int err = 0;
   struct cdev *cdev = &drvdata->c_dev;
   PRINT_INFO("nic_init_cdev\n");
+
+  sema_init(&raw_sem, 1);
 
   err = alloc_chrdev_region(&drvdata->c_dev_no, 0, 1, NIC_DRIVER_NAME);
   if (err < 0) {
@@ -83,7 +88,12 @@ int nic_cdev_open(struct inode *inode, struct file *filp) {
 }
 
 int nic_cdev_release(struct inode *inode, struct file *filp) {
+  struct nic_cdev_data *cdev_data = filp->private_data;
   PRINT_INFO("nic_cdev_release\n");
+  if (cdev_data->last_cmd == NIC_IOC_NR_RW_RAW) {
+    up(&raw_sem);
+  }
+  kfree(cdev_data);
   return 0;
 }
 
@@ -109,6 +119,8 @@ ssize_t nic_cdev_read(struct file *filp, char __user *buf, size_t count,
     }
     return count;
     break;
+  case NIC_IOC_NR_RW_RAW:
+    break;
   default:
     PRINT_ERR("invalid read cmd\n");
     break;
@@ -128,6 +140,7 @@ long nic_cdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
   struct cdev *cdev = cdev_data->cdev;
   struct nic_drvdata *drvdata = container_of(cdev, struct nic_drvdata, c_dev);
   int i;
+
   // PRINT_INFO("nic_cdev_ioctl\n");
   if (_IOC_TYPE(cmd) != NIC_IOC_MAGIC) {
     return -ENOTTY;
@@ -146,6 +159,17 @@ long nic_cdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
   case NIC_IOC_NR_RX_BD:
     // PRINT_INFO("NIC_IOC_NR_RX_BD\n");
     cdev_data->if_id = arg;
+    break;
+  case NIC_IOC_NR_UIO_EN:
+    drvdata->uio_enabled = !!arg;
+    break;
+  case NIC_IOC_NR_RW_RAW:
+    // PRINT_INFO("NIC_IOC_NR_RW_RAW\n");
+    if (down_interruptible(&raw_sem)) {
+      PRINT_ERR("busy\n");
+      cdev_data->last_cmd = 0;
+      return -EBUSY;
+    }
     break;
   default:
     break;

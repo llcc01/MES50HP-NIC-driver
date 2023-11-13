@@ -28,6 +28,11 @@ typedef uint64_t dma_addr_t;
 
 #define NIC_IOC_NR_RX_BD 2
 
+#define NIC_IOC_NR_RW_RAW 3
+
+#define NIC_IOC_NR_UIO_EN 4
+
+
 struct nic_bd {
   union {
     uint64_t flags;
