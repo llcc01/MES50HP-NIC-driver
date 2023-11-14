@@ -37,6 +37,16 @@ void nic_unset_hw(struct nic_adapter *adapter) {
 
 void nic_set_int(struct nic_adapter *adapter, int nr, bool enable) {
 #ifdef NO_INT
+  switch (nr) {
+  case NIC_VEC_TX:
+    adapter->emu_int_tx_enabled = enable;
+    break;
+  case NIC_VEC_RX:
+    adapter->emu_int_rx_enabled = enable;
+    break;
+  default:
+    break;
+  }
   return;
 #else
   void *csr_int_addr =

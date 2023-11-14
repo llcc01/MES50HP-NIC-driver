@@ -18,9 +18,9 @@ typedef uint64_t dma_addr_t;
 
 #define NIC_RX_PKT_SIZE 2048
 
-#define NIC_TX_RING_QUEUES 8
+#define NIC_TX_RING_QUEUES 256
 
-#define NIC_RX_RING_QUEUES 8
+#define NIC_RX_RING_QUEUES 256
 
 #define NIC_IOC_MAGIC 'S'
 
@@ -32,11 +32,16 @@ typedef uint64_t dma_addr_t;
 
 #define NIC_IOC_NR_UIO_EN 4
 
+#define NIC_IOC_NR_UIO_DIS 5
+
+#define CHECK_IF_NR(nr) (arg < 0 || arg >= NIC_IF_NUM)
+
+typedef uint16_t frame_len_t;
 
 struct nic_bd {
   union {
     uint64_t flags;
-    uint16_t len;
+    frame_len_t len;
   };
   dma_addr_t addr;
 };

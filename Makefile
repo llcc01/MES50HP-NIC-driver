@@ -28,7 +28,15 @@ set_hw:app
 poll:app
 	sudo ./app/app poll
 
-.PHONY: rmmod
+.PHONY: listen0
+listen0:app
+	sudo ./app/app listen 0
+
+.PHONY: send1
+send1:app
+	sudo ./app/app send 1
+
+.PHONY: insmod
 insmod:
 	sudo insmod nic.ko
 

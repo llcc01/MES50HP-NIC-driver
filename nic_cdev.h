@@ -4,6 +4,7 @@
 #include "nic.h"
 #include <linux/cdev.h>
 
+#define NIC_CDEV_DEVS 1
 
 int nic_init_cdev(struct nic_drvdata *drvdata);
 

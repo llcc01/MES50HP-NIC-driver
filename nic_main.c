@@ -13,7 +13,7 @@ MODULE_VERSION("0.01");
 char nic_driver_name[] = NIC_DRIVER_NAME;
 
 static const struct pci_device_id nic_pci_tbl[] = {
-    {PCI_DEVICE(PCI_VENDOR_ID_MY, 0x0755)},
+    {PCI_DEVICE(PCI_VENDOR_ID_MY, 0x0813)},
     /* required last entry */
     {
         0,
@@ -84,6 +84,7 @@ static int nic_poll(struct napi_struct *napi, int budget);
 static irqreturn_t nic_interrupt_tx(int irq, void *data);
 static irqreturn_t nic_interrupt_rx(int irq, void *data);
 static void nic_clean_tx_ring_work(struct work_struct *work);
+static void nic_uio_poll_work(struct work_struct *work);
 #endif
 
 static const struct net_device_ops nic_netdev_ops = {
@@ -105,21 +106,55 @@ static const struct net_device_ops nic_netdev_ops = {
     .ndo_set_features = nic_set_features,
 };
 #endif // PCI_FN_TEST
-#ifdef NO_PCI
+
+#if defined(NO_PCI) || defined(NO_INT)
 static struct net_device *test_netdev[NIC_IF_NUM];
 #endif
-static struct workqueue_struct *nic_wq;
+
+static struct workqueue_struct *nic_clean_wq;
+static struct workqueue_struct *nic_uio_poll_wq;
+
+#ifdef NO_INT
+// emu int
+struct timer_list emu_int_timer;
+
+void test_timer_func(struct timer_list *t) {
+  int i;
+  for (i = 0; i < NIC_IF_NUM; i++) {
+    struct nic_adapter *adapter = netdev_priv(test_netdev[i]);
+    if (adapter->emu_int_tx_enabled) {
+      nic_interrupt_tx(adapter->irq_tx, test_netdev[i]);
+    }
+    if (adapter->emu_int_rx_enabled) {
+      nic_interrupt_rx(adapter->irq_rx, test_netdev[i]);
+    }
+  }
+  mod_timer(&emu_int_timer, jiffies + NIC_EMU_INT_JIFFIES);
+}
+
+#endif
 
 static int __init nic_init_module(void) {
   int ret;
   PRINT_INFO("nic_init_module\n");
+
+  nic_clean_wq = create_singlethread_workqueue("nic_clean_wq");
+  if (!nic_clean_wq) {
+    PRINT_ERR("create_singlethread_workqueue nic_clean_wq failed\n");
+    return -ENOMEM;
+  }
+
+  nic_uio_poll_wq = create_singlethread_workqueue("nic_uio_poll_wq");
+  if (!nic_uio_poll_wq) {
+    PRINT_ERR("create_singlethread_workqueue nic_uio_poll_wq failed\n");
+    return -ENOMEM;
+  }
 
 #ifndef NO_PCI
   ret = pci_register_driver(&nic_driver);
 #else
   ret = nic_probe(NULL, NULL);
 #endif
-  nic_wq = create_singlethread_workqueue("nic_wq");
 
   return ret;
 }
@@ -133,7 +168,9 @@ static void __exit nic_exit_module(void) {
 #else
   nic_remove(NULL);
 #endif
-  destroy_workqueue(nic_wq);
+
+  destroy_workqueue(nic_clean_wq);
+  destroy_workqueue(nic_uio_poll_wq);
 }
 
 module_exit(nic_exit_module);
@@ -206,8 +243,10 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
     SET_NETDEV_DEV(drvdata->netdevs[i], &pdev->dev);
   }
   pci_set_drvdata(pdev, drvdata);
-#else
-  memmove(test_netdev, netdevs, sizeof(void *) * NIC_IF_NUM);
+#endif
+
+#if defined(NO_PCI) || defined(NO_INT)
+  memmove(test_netdev, drvdata->netdevs, sizeof(void *) * NIC_IF_NUM);
 #endif
   PRINT_INFO("alloc netdev\n");
 
@@ -215,7 +254,8 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
   // ioremap
   adapter[0]->io_size = pci_resource_len(pdev, 0);
   adapter[0]->io_base = pci_resource_start(pdev, 0);
-  adapter[0]->io_addr = pci_ioremap_bar(pdev, 0) + NIC_CTL_ADDR(NIC_FUNC_ID_PCIE, 0, 0);
+  adapter[0]->io_addr =
+      pci_ioremap_bar(pdev, 0) + NIC_CTL_ADDR(NIC_FUNC_ID_PCIE, 0, 0);
   if (!adapter[0]->io_addr) {
     PRINT_ERR("pci_ioremap_bar failed\n");
     err = -ENOMEM;
@@ -317,6 +357,14 @@ static int nic_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
 
 #endif
 
+#ifdef NO_INT
+  // emu int
+  emu_int_timer.expires = jiffies + NIC_EMU_INT_JIFFIES;
+  emu_int_timer.function = test_timer_func;
+  add_timer(&emu_int_timer);
+
+#endif
+
   PRINT_INFO("nic_probe done\n");
   return 0;
 
@@ -370,6 +418,10 @@ static void nic_remove(struct pci_dev *pdev) {
 #endif
 
   PRINT_INFO("nic_remove\n");
+
+#ifdef NO_INT
+  del_timer(&emu_int_timer);
+#endif
 
 #ifndef NO_PCI
   drvdata = pci_get_drvdata(pdev);
@@ -544,6 +596,10 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
   // dma_addr_t *tx_bd_pa;
   // struct nic_bd *rx_bd_va;
   // dma_addr_t *rx_bd_pa;
+
+  struct nic_rx_frame **rx_data_vas;
+  struct nic_rx_frame *rx_data_va;
+
   size_t i;
 #ifndef NO_PCI
   dma_addr_t rx_buffer_pa;
@@ -552,9 +608,10 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
   // TX
   tx_ring->bd_size = NIC_TX_RING_QUEUES;
 
-  tx_ring->skbs = kcalloc(tx_ring->bd_size, sizeof(void *), GFP_KERNEL);
+  tx_ring->skbs =
+      kcalloc(tx_ring->bd_size, sizeof(struct sk_buff *), GFP_KERNEL);
   if (!tx_ring->skbs) {
-    PRINT_ERR("alloc tx_ring data_vas failed\n");
+    PRINT_ERR("alloc tx_ring skbs failed\n");
     err = -ENOMEM;
     goto err_tx;
   }
@@ -581,35 +638,37 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
 
   rx_ring->bd_size = NIC_RX_RING_QUEUES;
 
-  rx_ring->data_vas = kcalloc(rx_ring->bd_size, sizeof(void *), GFP_KERNEL);
+  rx_data_vas =
+      kcalloc(rx_ring->bd_size, sizeof(struct nic_rx_frame *), GFP_KERNEL);
 
-  if (!rx_ring->data_vas) {
+  if (!rx_data_vas) {
     PRINT_ERR("alloc rx_ring vas failed\n");
     err = -ENOMEM;
     goto err_rx;
   }
 
+  // PRINT_INFO("rx_ring->data_vas: %p\n", rx_data_vas);
+  rx_ring->data_vas = (void *)rx_data_vas;
+
   // RX buffer
   // contiguous
 
 #ifndef NO_PCI
-  rx_ring->data_vas[0] = dma_alloc_coherent(
+  rx_data_va = dma_alloc_coherent(
       &pdev->dev, sizeof(struct nic_rx_frame) * rx_ring->bd_size, &rx_buffer_pa,
       GFP_KERNEL);
 #else
-  rx_ring->data_vas[0] =
-      kcalloc(rx_ring->size, sizeof(struct nic_rx_frame), GFP_KERNEL);
+  rx_data_va = kcalloc(rx_ring->size, sizeof(struct nic_rx_frame), GFP_KERNEL);
 #endif
 
-  if (!rx_ring->data_vas[0]) {
+  if (!rx_data_va) {
     PRINT_ERR("alloc rx_ring buffer failed\n");
     err = -ENOMEM;
     goto err_rx_buffer;
   }
 
-  for (i = 1; i < rx_ring->bd_size; i++) {
-    rx_ring->data_vas[i] =
-        rx_ring->data_vas[i - 1] + sizeof(struct nic_rx_frame);
+  for (i = 0; i < rx_ring->bd_size; i++) {
+    rx_data_vas[i] = rx_data_va + i;
   }
 
   // RX BD
@@ -637,11 +696,13 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
 
 #ifndef NO_PCI
   // write reg
-  // nic_set_hw(adapter);
+  nic_set_hw(adapter);
 
   // sync_with_hw_tail
   tx_ring->next_to_use =
       readl(adapter->io_addr + NIC_REG_TO_ADDR(NIC_PCIE_REG_TX_BD_TAIL));
+  tx_ring->next_to_clean = tx_ring->next_to_use;
+
   rx_ring->next_to_use =
       readl(adapter->io_addr + NIC_REG_TO_ADDR(NIC_PCIE_REG_RX_BD_TAIL));
 #endif
@@ -717,6 +778,10 @@ int nic_setup_all_resources(struct nic_adapter *adapter) {
     goto err_alloc_queues;
   }
 
+  sema_init(&adapter->raw_sema, 1);
+  sema_init(&adapter->raw_rx_sema, 0);
+  sema_init(&adapter->raw_rx_wait_sema, 0);
+
   return 0;
 
 err_alloc_queues:
@@ -736,7 +801,7 @@ int nic_open(struct net_device *netdev) {
   netif_carrier_off(netdev);
 
   // test
-  return 0;
+  // return 0;
 
   napi_enable(&adapter->napi);
 
@@ -759,7 +824,7 @@ int nic_close(struct net_device *netdev) {
   netdev_info(netdev, "nic_close\n");
 
   // test
-  return 0;
+  // return 0;
 
 #ifndef NO_PCI
   nic_set_int(adapter, NIC_VEC_TX, false);
@@ -856,7 +921,11 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
   netdev_info(netdev, "nic_xmit_frame\n");
   netdev_info(netdev, "skb->len: %u\n", skb->len);
 
-  // return NETDEV_TX_OK;
+  if (adapter->uio_enabled) {
+    // ignore skb
+    dev_kfree_skb_any(skb);
+    return NETDEV_TX_OK;
+  }
 
   /* This goes back to the question of how to logically map a Tx queue
    * to a flow.  Right now, performance is impacted slightly negatively
@@ -961,7 +1030,7 @@ err_recv:
   adapter->rx_ring.next_to_use =
       (adapter->rx_ring.next_to_use + 1) % adapter->rx_ring.bd_size;
 
-  bd->flags |= NIC_BD_FLAG_USED;
+  // bd->flags |= NIC_BD_FLAG_USED;
   return skb;
 }
 
@@ -1007,16 +1076,18 @@ static int nic_poll(struct napi_struct *napi, int budget) {
   struct nic_rx_ring *rx_ring;
   struct sk_buff *skb;
   int work_done = 0;
-  netdev_info(adapter->netdev, "nic_poll\n");
+  // netdev_info(adapter->netdev, "nic_poll\n");
 
   // TODO
   // int work_to_do = min(*budget, netdev->quota);
 
   rx_ring = &adapter->rx_ring;
 
-  netdev_info(adapter->netdev,
-              "rx_ring->bd_va[rx_ring->next_to_use].flags = %llu\n",
-              rx_ring->bd_va[rx_ring->next_to_use].flags);
+  // netdev_info(adapter->netdev,
+  //             "rx_ring->bd_va[rx_ring->next_to_use].flags = %llx,
+  //             rx_ring->next_to_use = %d\n",
+  //             rx_ring->bd_va[rx_ring->next_to_use].flags,
+  //             rx_ring->next_to_use);
 
   while (rx_ring->bd_va[rx_ring->next_to_use].flags & NIC_BD_FLAG_VALID) {
     netdev_info(adapter->netdev, "nic_poll: next_to_use = %u\n",
@@ -1073,7 +1144,7 @@ static irqreturn_t nic_interrupt_tx(int irq, void *data) {
   struct net_device *netdev = data;
   struct nic_adapter *adapter = netdev_priv(netdev);
   struct clean_work_ctx *work_ctx;
-  netdev_info(netdev, "nic_interrupt_tx\n");
+  // netdev_info(netdev, "nic_interrupt_tx\n");
   work_ctx = kmalloc(sizeof(struct clean_work_ctx), GFP_ATOMIC);
   if (!work_ctx) {
     netdev_err(netdev, "work_ctx kmalloc failed\n");
@@ -1083,53 +1154,145 @@ static irqreturn_t nic_interrupt_tx(int irq, void *data) {
 
   // netdev_info(netdev, "INIT_WORK nic_clean_tx_ring_work\n");
   INIT_WORK(&work_ctx->work, nic_clean_tx_ring_work);
-  if (!queue_work(nic_wq, &work_ctx->work)) {
+  if (!queue_work(nic_clean_wq, &work_ctx->work)) {
     netdev_err(netdev, "schedule_work failed\n");
     kfree(work_ctx);
   }
   return IRQ_HANDLED;
 }
+
 static irqreturn_t nic_interrupt_rx(int irq, void *data) {
   struct net_device *netdev = data;
   struct nic_adapter *adapter = netdev_priv(netdev);
-  netdev_info(netdev, "nic_interrupt_rx\n");
-  if (napi_schedule_prep(&adapter->napi)) {
-    __napi_schedule(&adapter->napi);
+  // netdev_info(netdev, "nic_interrupt_rx\n");
+
+  if (adapter->uio_enabled) {
+    struct uio_poll_work_ctx *work_ctx;
+    work_ctx = kmalloc(sizeof(struct uio_poll_work_ctx), GFP_ATOMIC);
+    if (!work_ctx) {
+      netdev_err(netdev, "work_ctx kmalloc failed\n");
+      return IRQ_HANDLED;
+    }
+    work_ctx->adapter = adapter;
+
+    // netdev_info(netdev, "INIT_WORK nic_uio_poll_work\n");
+    INIT_WORK(&work_ctx->work, nic_uio_poll_work);
+    if (!queue_work(nic_uio_poll_wq, &work_ctx->work)) {
+      netdev_err(netdev, "schedule_work failed\n");
+      kfree(work_ctx);
+    }
+  } else {
+    if (napi_schedule_prep(&adapter->napi)) {
+      __napi_schedule(&adapter->napi);
+    }
   }
+
   nic_set_int(adapter, NIC_VEC_RX, false);
+
   return IRQ_HANDLED;
 }
 
 static void nic_clean_tx_ring_work(struct work_struct *work) {
-  struct nic_adapter *adapter =
-      container_of(work, struct clean_work_ctx, work)->adapter;
+  struct clean_work_ctx *work_ctx =
+      container_of(work, struct clean_work_ctx, work);
+  struct nic_adapter *adapter = work_ctx->adapter;
   struct nic_bd *bd_clean;
-  struct sk_buff *skb_clean;
+  void *data_clean;
   struct nic_tx_ring *tx_ring = &adapter->tx_ring;
-  netdev_info(adapter->netdev, "nic_clean_tx_ring_work\n");
+  // netdev_info(adapter->netdev, "nic_clean_tx_ring_work\n");
   nic_set_int(adapter, NIC_VEC_TX, false);
   while (1) {
     if (!tx_ring->bd_va || !tx_ring->skbs) {
       break;
     }
     bd_clean = &tx_ring->bd_va[tx_ring->next_to_clean];
-    skb_clean = tx_ring->skbs[tx_ring->next_to_clean];
-    if (!(bd_clean->flags & NIC_BD_FLAG_USED)) {
+    data_clean = tx_ring->data_vas[tx_ring->next_to_clean];
+    if (!(bd_clean->flags & NIC_BD_FLAG_VALID)) {
       break;
     }
-    dma_unmap_single(&adapter->pdev->dev, bd_clean->addr, bd_clean->len,
-                     DMA_TO_DEVICE);
-    dev_kfree_skb_any(skb_clean);
-    bd_clean->flags &= ~NIC_BD_FLAG_VALID;
-    bd_clean->flags &= ~NIC_BD_FLAG_USED;
 
-    netdev_info(adapter->netdev, "free skb %u\n", tx_ring->next_to_clean);
+    if (adapter->uio_enabled) {
+      dma_free_coherent(&adapter->pdev->dev, bd_clean->len, data_clean,
+                        bd_clean->addr);
+      netdev_info(adapter->netdev, "free uio data %u\n", tx_ring->next_to_clean);
+    } else {
+      dma_unmap_single(&adapter->pdev->dev, bd_clean->addr, bd_clean->len,
+                       DMA_TO_DEVICE);
+      dev_kfree_skb_any(data_clean);
+      netdev_info(adapter->netdev, "free skb %u\n", tx_ring->next_to_clean);
+    }
+
+    bd_clean->flags &= ~NIC_BD_FLAG_VALID;
+    // bd_clean->flags &= ~NIC_BD_FLAG_USED;
 
     tx_ring->next_to_clean = (tx_ring->next_to_clean + 1) % tx_ring->bd_size;
   }
   nic_set_int(adapter, NIC_VEC_TX, true);
+  kfree(work_ctx);
 }
+
+static void nic_uio_poll_work(struct work_struct *work) {
+  struct uio_poll_work_ctx *work_ctx =
+      container_of(work, struct uio_poll_work_ctx, work);
+  struct nic_adapter *adapter = work_ctx->adapter;
+  struct nic_rx_ring *rx_ring = &adapter->rx_ring;
+  struct nic_bd *bd;
+  // netdev_info(adapter->netdev, "nic_uio_poll_work\n");
+  while (1) {
+    bd = &rx_ring->bd_va[rx_ring->next_to_use];
+    if (!(bd->flags & NIC_BD_FLAG_VALID)) {
+      break;
+    }
+
+    if (down_timeout(&adapter->raw_rx_wait_sema, NIC_UIO_RX_TIMEOUT_JIFFIES) ==
+        0) {
+      adapter->uio_rx_buf->buf = rx_ring->data_vas[rx_ring->next_to_use];
+      adapter->uio_rx_buf->len = bd->len;
+
+      // wake up user
+      up(&adapter->raw_rx_sema);
+    }
+
+    bd->flags &= ~NIC_BD_FLAG_VALID;
+    // bd->flags &= ~NIC_BD_FLAG_USED;
+    rx_ring->next_to_use = (rx_ring->next_to_use + 1) % rx_ring->bd_size;
+  }
+
+  nic_set_int(adapter, NIC_VEC_RX, true);
+  kfree(work_ctx);
+}
+
+void nic_uio_xmit_frame(struct nic_adapter *adapter,
+                        struct nic_uio_tx_buf *uio_tx_buf) {
+  struct nic_tx_ring *tx_ring;
+  struct nic_bd *bd;
+  u16 next_to_use;
+  int err;
+
+  netdev_info(adapter->netdev, "nic_uio_xmit_frame\n");
+  netdev_info(adapter->netdev, "uio_tx_buf->len: %u\n", uio_tx_buf->len);
+
+  tx_ring = &adapter->tx_ring;
+  next_to_use = tx_ring->next_to_use;
+  bd = tx_ring->bd_va + next_to_use;
+
+  bd->len = cpu_to_le16(uio_tx_buf->len);
+  tx_ring->data_vas[next_to_use] =
+      dma_alloc_coherent(&adapter->pdev->dev, bd->len, &bd->addr, GFP_KERNEL);
+
+  err =
+      copy_from_user(tx_ring->data_vas[next_to_use], uio_tx_buf->buf, bd->len);
+  if (err) {
+    netdev_err(adapter->netdev, "copy_from_user failed\n");
+    return;
+  }
+
+  tx_ring->next_to_use = (next_to_use + 1) % tx_ring->bd_size;
+
+  writel(tx_ring->next_to_use,
+         ((void *)adapter->io_addr) + NIC_REG_TO_ADDR(NIC_PCIE_REG_TX_BD_TAIL));
+}
+
 #endif // PCI_FN_TEST
 
 #endif
-  

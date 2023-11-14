@@ -2,9 +2,8 @@
 #include "common.h"
 #include "nic.h"
 #include "nic_hw.h"
+#include <linux/mutex.h>
 #include <linux/semaphore.h>
-
-static struct semaphore raw_sem;
 
 int nic_cdev_open(struct inode *inode, struct file *filp);
 int nic_cdev_release(struct inode *inode, struct file *filp);
@@ -30,9 +29,8 @@ int nic_init_cdev(struct nic_drvdata *drvdata) {
   struct cdev *cdev = &drvdata->c_dev;
   PRINT_INFO("nic_init_cdev\n");
 
-  sema_init(&raw_sem, 1);
-
-  err = alloc_chrdev_region(&drvdata->c_dev_no, 0, 1, NIC_DRIVER_NAME);
+  err = alloc_chrdev_region(&drvdata->c_dev_no, 0, NIC_CDEV_DEVS,
+                            NIC_DRIVER_NAME);
   if (err < 0) {
     PRINT_ERR("alloc_chrdev_region failed\n");
     goto err_alloc_chrdev_region;
@@ -63,7 +61,7 @@ err_class_create:
   cdev_del(cdev);
 err_cdev_add:
 
-  unregister_chrdev_region(drvdata->c_dev_no, 1);
+  unregister_chrdev_region(drvdata->c_dev_no, NIC_CDEV_DEVS);
 err_alloc_chrdev_region:
 
   return err;
@@ -74,7 +72,7 @@ void nic_exit_cdev(struct nic_drvdata *drvdata) {
   device_destroy(drvdata->c_dev_class, drvdata->c_dev_no);
   class_destroy(drvdata->c_dev_class);
   cdev_del(&drvdata->c_dev);
-  unregister_chrdev_region(drvdata->c_dev_no, 1);
+  unregister_chrdev_region(drvdata->c_dev_no, NIC_CDEV_DEVS);
 }
 
 int nic_cdev_open(struct inode *inode, struct file *filp) {
@@ -89,10 +87,16 @@ int nic_cdev_open(struct inode *inode, struct file *filp) {
 
 int nic_cdev_release(struct inode *inode, struct file *filp) {
   struct nic_cdev_data *cdev_data = filp->private_data;
+  struct nic_drvdata *drvdata =
+      container_of(cdev_data->cdev, struct nic_drvdata, c_dev);
+  struct nic_adapter *adapter = netdev_priv(drvdata->netdevs[cdev_data->if_id]);
   PRINT_INFO("nic_cdev_release\n");
-  if (cdev_data->last_cmd == NIC_IOC_NR_RW_RAW) {
-    up(&raw_sem);
+
+  // release raw semaphore
+  if (_IOC_NR(cdev_data->last_cmd) == NIC_IOC_NR_RW_RAW) {
+    up(&adapter->raw_sema);
   }
+
   kfree(cdev_data);
   return 0;
 }
@@ -105,6 +109,8 @@ ssize_t nic_cdev_read(struct file *filp, char __user *buf, size_t count,
   struct nic_adapter *adapter = netdev_priv(drvdata->netdevs[cdev_data->if_id]);
   int err;
   // PRINT_INFO("nic_cdev_read\n");
+
+  // PRINT_INFO("uio %d: buf: %pK\n", cdev_data->if_id, buf);
 
   switch (_IOC_NR(cdev_data->last_cmd)) {
   case NIC_IOC_NR_RX_BD:
@@ -119,8 +125,26 @@ ssize_t nic_cdev_read(struct file *filp, char __user *buf, size_t count,
     }
     return count;
     break;
-  case NIC_IOC_NR_RW_RAW:
-    break;
+  case NIC_IOC_NR_RW_RAW: {
+    struct nic_uio_rx_buf uio_rx_buf;
+    adapter->uio_rx_buf = &uio_rx_buf;
+    up(&adapter->raw_rx_wait_sema);
+    if (down_killable(&adapter->raw_rx_sema)) {
+      PRINT_ERR("uio %d: read raw failed, killed\n", cdev_data->if_id);
+      err = down_trylock(&adapter->raw_rx_wait_sema);
+      return -EINTR;
+    }
+
+    err = copy_to_user(buf, uio_rx_buf.buf, uio_rx_buf.len);
+    if (err) {
+      PRINT_ERR("uio %d: copy_to_user failed\n", cdev_data->if_id);
+      return -EFAULT;
+    }
+
+    return uio_rx_buf.len;
+  }
+
+  break;
   default:
     PRINT_ERR("invalid read cmd\n");
     break;
@@ -131,7 +155,24 @@ ssize_t nic_cdev_read(struct file *filp, char __user *buf, size_t count,
 
 ssize_t nic_cdev_write(struct file *filp, const char __user *buf, size_t count,
                        loff_t *f_pos) {
-  PRINT_INFO("nic_cdev_write\n");
+  struct nic_cdev_data *cdev_data = filp->private_data;
+  struct nic_drvdata *drvdata =
+      container_of(cdev_data->cdev, struct nic_drvdata, c_dev);
+  struct nic_adapter *adapter = netdev_priv(drvdata->netdevs[cdev_data->if_id]);
+  int err;
+  // PRINT_INFO("nic_cdev_write\n");
+
+  switch (_IOC_NR(cdev_data->last_cmd)) {
+  case NIC_IOC_NR_RW_RAW: {
+    struct nic_uio_tx_buf uio_tx_buf;
+    uio_tx_buf.buf = buf;
+    uio_tx_buf.len = count;
+    nic_uio_xmit_frame(adapter, &uio_tx_buf);
+  } break;
+  default:
+    PRINT_ERR("invalid write cmd\n");
+    break;
+  }
   return count;
 }
 
@@ -139,11 +180,17 @@ long nic_cdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
   struct nic_cdev_data *cdev_data = filp->private_data;
   struct cdev *cdev = cdev_data->cdev;
   struct nic_drvdata *drvdata = container_of(cdev, struct nic_drvdata, c_dev);
+  struct nic_adapter *adapter;
   int i;
 
   // PRINT_INFO("nic_cdev_ioctl\n");
   if (_IOC_TYPE(cmd) != NIC_IOC_MAGIC) {
     return -ENOTTY;
+  }
+
+  // release raw semaphore
+  if (_IOC_NR(cdev_data->last_cmd) == NIC_IOC_NR_RW_RAW) {
+    up(&adapter->raw_sema);
   }
 
   cdev_data->last_cmd = cmd;
@@ -152,26 +199,56 @@ long nic_cdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
   case NIC_IOC_NR_SET_HW:
     // PRINT_INFO("NIC_IOC_NR_SET_HW\n");
     for (i = 0; i < NIC_IF_NUM; i++) {
-      struct nic_adapter *adapter = netdev_priv(drvdata->netdevs[i]);
+      adapter = netdev_priv(drvdata->netdevs[i]);
       nic_set_hw(adapter);
     }
     break;
   case NIC_IOC_NR_RX_BD:
     // PRINT_INFO("NIC_IOC_NR_RX_BD\n");
+    if (CHECK_IF_NR(arg)) {
+      PRINT_ERR("invalid arg\n");
+      return -EINVAL;
+    }
     cdev_data->if_id = arg;
     break;
   case NIC_IOC_NR_UIO_EN:
-    drvdata->uio_enabled = !!arg;
+    // PRINT_INFO("NIC_IOC_NR_UIO_EN\n");
+    if (CHECK_IF_NR(arg)) {
+      PRINT_ERR("invalid arg\n");
+      return -EINVAL;
+    }
+    adapter = netdev_priv(drvdata->netdevs[arg]);
+    adapter->uio_enabled = 1;
+    break;
+  case NIC_IOC_NR_UIO_DIS:
+    // PRINT_INFO("NIC_IOC_NR_UIO_DIS\n");
+    if (CHECK_IF_NR(arg)) {
+      PRINT_ERR("invalid arg\n");
+      return -EINVAL;
+    }
+    adapter = netdev_priv(drvdata->netdevs[arg]);
+    adapter->uio_enabled = 0;
     break;
   case NIC_IOC_NR_RW_RAW:
     // PRINT_INFO("NIC_IOC_NR_RW_RAW\n");
-    if (down_interruptible(&raw_sem)) {
+    if (CHECK_IF_NR(arg)) {
+      PRINT_ERR("invalid arg\n");
+      return -EINVAL;
+    }
+    if (!(drvdata->netdevs[arg]->flags & IFF_UP)) {
+      PRINT_ERR("if%ld is down\n", arg);
+      return -EBUSY;
+    }
+    adapter = netdev_priv(drvdata->netdevs[arg]);
+    if (down_trylock(&adapter->raw_sema)) {
       PRINT_ERR("busy\n");
       cdev_data->last_cmd = 0;
       return -EBUSY;
     }
+    cdev_data->if_id = arg;
     break;
   default:
+    PRINT_ERR("invalid cmd\n");
     break;
   }
   return 0;

@@ -59,7 +59,7 @@
 
 #define NIC_BD_FLAG_VALID BIT(63)
 
-#define NIC_BD_FLAG_USED BIT(62)
+// #define NIC_BD_FLAG_USED BIT(62)
 
 void nic_set_hw(struct nic_adapter *adapter);
 
