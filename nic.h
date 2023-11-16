@@ -30,6 +30,8 @@
 
 #define NIC_UIO_RX_TIMEOUT_JIFFIES (HZ / 10)
 
+#define NIC_TX_SYNC_THRESHOLD 32
+
 #endif
 
 #define PCI_VENDOR_ID_MY 0x0813
@@ -55,6 +57,7 @@ struct nic_tx_ring {
   u16 bd_dma_size;
 
   u16 next_to_use;
+  u16 last_sync;
   u16 next_to_clean;
 };
 

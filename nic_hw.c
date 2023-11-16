@@ -60,3 +60,10 @@ void nic_set_int(struct nic_adapter *adapter, int nr, bool enable) {
   }
 #endif
 }
+
+void nic_update_tx_tail(struct nic_adapter *adapter) {
+  struct nic_tx_ring *tx_ring = &adapter->tx_ring;
+  writel(tx_ring->next_to_use,
+         ((void *)adapter->io_addr) + NIC_REG_TO_ADDR(NIC_PCIE_REG_TX_BD_TAIL));
+  tx_ring->last_sync = tx_ring->next_to_use;
+}

@@ -701,10 +701,15 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
   // sync_with_hw_tail
   tx_ring->next_to_use =
       readl(adapter->io_addr + NIC_REG_TO_ADDR(NIC_PCIE_REG_TX_BD_TAIL));
+  tx_ring->last_sync = tx_ring->next_to_use;
   tx_ring->next_to_clean = tx_ring->next_to_use;
+  netdev_info(adapter->netdev, "tx_ring->next_to_use: %u\n",
+              tx_ring->next_to_use);
 
   rx_ring->next_to_use =
       readl(adapter->io_addr + NIC_REG_TO_ADDR(NIC_PCIE_REG_RX_BD_TAIL));
+  netdev_info(adapter->netdev, "rx_ring->next_to_use: %u\n",
+              rx_ring->next_to_use);
 #endif
 
   return 0;
@@ -969,9 +974,14 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
    */
   // dma_wmb();
 
-  // TODO, delay setting tail
-  writel(tx_ring->next_to_use,
-         ((void *)adapter->io_addr) + NIC_REG_TO_ADDR(NIC_PCIE_REG_TX_BD_TAIL));
+  // TODO
+  if (!netdev_xmit_more() ||
+      netif_xmit_stopped(netdev_get_tx_queue(netdev, 0)) ||
+      ((tx_ring->next_to_use + tx_ring->bd_size - tx_ring->last_sync) %
+       tx_ring->bd_size) >= NIC_TX_SYNC_THRESHOLD) {
+    nic_update_tx_tail(adapter);
+  }
+
 #else
   // for test
   {
@@ -1214,7 +1224,8 @@ static void nic_clean_tx_ring_work(struct work_struct *work) {
     if (adapter->uio_enabled) {
       dma_free_coherent(&adapter->pdev->dev, bd_clean->len, data_clean,
                         bd_clean->addr);
-      netdev_info(adapter->netdev, "free uio data %u\n", tx_ring->next_to_clean);
+      netdev_info(adapter->netdev, "free uio data %u\n",
+                  tx_ring->next_to_clean);
     } else {
       dma_unmap_single(&adapter->pdev->dev, bd_clean->addr, bd_clean->len,
                        DMA_TO_DEVICE);

@@ -67,4 +67,6 @@ void nic_unset_hw(struct nic_adapter *adapter);
 
 void nic_set_int(struct nic_adapter *adapter, int nr, bool enable);
 
+void nic_update_tx_tail(struct nic_adapter *adapter);
+
 #endif
