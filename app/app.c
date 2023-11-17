@@ -74,7 +74,7 @@ void listen(int if_id) {
 }
 
 void send_raw(int if_id) {
-  uint8_t buf[150];
+  uint8_t buf[64];
   int i;
   int err;
 
@@ -92,6 +92,7 @@ void send_raw(int if_id) {
   while (1) {
     write(fd, buf, sizeof(buf));
     printf("send raw: len = %zu\n", sizeof(buf));
+    break;
     usleep(100000);
   }
 }
@@ -134,8 +135,24 @@ int main(int argc, char *argv[]) {
     int if_id = atoi(argv[2]);
     printf("send_raw if%d\n", if_id);
     printf("press ctrl+c to exit\n");
-    sleep(1);
+    // sleep(1);
     send_raw(if_id);
+  } else if (strcmp(argv[1], "uio_en") == 0) {
+    if (argc < 3) {
+      printf("Usage: %s uio_en <if_id>\n", argv[0]);
+      return -1;
+    }
+    int if_id = atoi(argv[2]);
+    printf("uio_en if%d\n", if_id);
+    APP_IOC_INT(fd, NIC_IOC_NR_UIO_EN, if_id);
+  } else if (strcmp(argv[1], "uio_dis") == 0) {
+    if (argc < 3) {
+      printf("Usage: %s uio_dis <if_id>\n", argv[0]);
+      return -1;
+    }
+    int if_id = atoi(argv[2]);
+    printf("uio_dis if%d\n", if_id);
+    APP_IOC_INT(fd, NIC_IOC_NR_UIO_DIS, if_id);
   } else {
     printf("invalid argument\n");
     return -1;

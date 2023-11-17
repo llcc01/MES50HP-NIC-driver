@@ -36,8 +36,30 @@ listen0:app
 send1:app
 	sudo ./app/app send 1
 
+.PHONY: uio_en0
+uio_en0:app
+	sudo ./app/app uio_en 0
+
+.PHONY: uio_en1
+uio_en1:app
+	sudo ./app/app uio_en 1
+
+.PHONY: uio_dis0
+uio_dis0:app
+	sudo ./app/app uio_dis 0
+
+.PHONY: uio_dis1
+uio_dis1:app
+	sudo ./app/app uio_dis 1
+
 .PHONY: insmod
 insmod:
+	sudo insmod nic.ko
+
+.PHONY: reload
+reload:
+	sudo rmmod nic.ko
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
 	sudo insmod nic.ko
 
 .PHONY: rmmod
@@ -61,6 +83,17 @@ ip3:
 	sudo ip a add 192.168.10.1/24 dev eth0
 	sudo ip a add 192.168.11.1/24 dev enp0s1
 	ip a
+
+.PHONY: ip4
+ip4:
+	sudo ip a add 192.168.10.1/24 dev eth0
+	sudo ip a add 192.168.11.1/24 dev enp1s0
+	ip a
+
+.PHONY: ip_del4
+ip_del4:
+	sudo ip a del 192.168.10.1 dev eth0
+	sudo ip a del 192.168.11.1 dev enp1s0
 
 .PHONY: linkup
 linkup:

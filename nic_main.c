@@ -710,6 +710,8 @@ static int nic_alloc_queues(struct nic_adapter *adapter) {
       readl(adapter->io_addr + NIC_REG_TO_ADDR(NIC_PCIE_REG_RX_BD_TAIL));
   netdev_info(adapter->netdev, "rx_ring->next_to_use: %u\n",
               rx_ring->next_to_use);
+  rx_ring->last_sync = rx_ring->next_to_use + NIC_RX_SYNC_NUM;
+  nic_update_rx_tail(adapter);
 #endif
 
   return 0;
@@ -923,14 +925,14 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
   struct pci_dev *pdev = adapter->pdev;
 #endif
 
-  netdev_info(netdev, "nic_xmit_frame\n");
-  netdev_info(netdev, "skb->len: %u\n", skb->len);
-
   if (adapter->uio_enabled) {
     // ignore skb
     dev_kfree_skb_any(skb);
     return NETDEV_TX_OK;
   }
+
+  netdev_info(netdev, "nic_xmit_frame\n");
+  netdev_info(netdev, "skb->len: %u\n", skb->len);
 
   /* This goes back to the question of how to logically map a Tx queue
    * to a flow.  Right now, performance is impacted slightly negatively
@@ -960,6 +962,7 @@ static netdev_tx_t nic_xmit_frame(struct sk_buff *skb,
 #ifndef NO_PCI
   bd->addr = cpu_to_le64(dma_map_single(
       &pdev->dev, tx_ring->skbs[next_to_use]->data, skb->len, DMA_TO_DEVICE));
+  netdev_info(netdev, "bd->addr: %llx\n", bd->addr);
 #else
   // use va as pa, for test
   bd->addr = (dma_addr_t)NULL;
@@ -1045,25 +1048,25 @@ err_recv:
 }
 
 static void nic_set_rx_mode(struct net_device *netdev) {
-  netdev_info(netdev, "nic_set_rx_mode\n");
+  // netdev_info(netdev, "nic_set_rx_mode\n");
 }
 
 static int nic_set_mac(struct net_device *netdev, void *p) {
-  netdev_info(netdev, "nic_set_mac\n");
+  // netdev_info(netdev, "nic_set_mac\n");
   return 0;
 }
 
 static void nic_tx_timeout(struct net_device *dev, unsigned int txqueue) {
-  netdev_info(dev, "nic_tx_timeout\n");
+  // netdev_info(dev, "nic_tx_timeout\n");
 }
 
 static int nic_change_mtu(struct net_device *netdev, int new_mtu) {
-  netdev_info(netdev, "nic_change_mtu\n");
+  // netdev_info(netdev, "nic_change_mtu\n");
   return 0;
 }
 
 static int nic_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd) {
-  netdev_info(netdev, "nic_ioctl\n");
+  // netdev_info(netdev, "nic_ioctl\n");
   return 0;
 }
 
@@ -1078,7 +1081,7 @@ static int nic_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd) {
 // }
 
 static void nic_netpoll(struct net_device *netdev) {
-  netdev_info(netdev, "nic_netpoll\n");
+  // netdev_info(netdev, "nic_netpoll\n");
 }
 
 static int nic_poll(struct napi_struct *napi, int budget) {
@@ -1113,6 +1116,14 @@ static int nic_poll(struct napi_struct *napi, int budget) {
     }
     skb->protocol = eth_type_trans(skb, adapter->netdev);
     napi_gro_receive(napi, skb);
+
+    if ((rx_ring->last_sync + rx_ring->bd_size - rx_ring->next_to_use) %
+            rx_ring->bd_size <=
+        NIC_RX_SYNC_THRESHOLD) {
+      rx_ring->last_sync =
+          (rx_ring->last_sync + NIC_RX_SYNC_NUM) % rx_ring->bd_size;
+      nic_update_rx_tail(adapter);
+    }
   }
 
 #ifndef NO_PCI
@@ -1291,6 +1302,8 @@ void nic_uio_xmit_frame(struct nic_adapter *adapter,
   tx_ring->data_vas[next_to_use] =
       dma_alloc_coherent(&adapter->pdev->dev, bd->len, &bd->addr, GFP_KERNEL);
 
+  netdev_info(adapter->netdev, "bd->addr: %llx\n", bd->addr);
+
   err =
       copy_from_user(tx_ring->data_vas[next_to_use], uio_tx_buf->buf, bd->len);
   if (err) {
@@ -1300,8 +1313,7 @@ void nic_uio_xmit_frame(struct nic_adapter *adapter,
 
   tx_ring->next_to_use = (next_to_use + 1) % tx_ring->bd_size;
 
-  writel(tx_ring->next_to_use,
-         ((void *)adapter->io_addr) + NIC_REG_TO_ADDR(NIC_PCIE_REG_TX_BD_TAIL));
+  nic_update_tx_tail(adapter);
 }
 
 #endif // PCI_FN_TEST

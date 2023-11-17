@@ -30,7 +30,11 @@
 
 #define NIC_UIO_RX_TIMEOUT_JIFFIES (HZ / 10)
 
-#define NIC_TX_SYNC_THRESHOLD 32
+#define NIC_TX_SYNC_THRESHOLD 4
+
+#define NIC_RX_SYNC_NUM 4
+
+#define NIC_RX_SYNC_THRESHOLD (NIC_RX_SYNC_NUM / 2)
 
 #endif
 
@@ -70,6 +74,7 @@ struct nic_rx_ring {
   u16 bd_dma_size;
 
   u16 next_to_use;
+  u16 last_sync;
 };
 
 struct nic_adapter {

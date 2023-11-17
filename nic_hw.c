@@ -1,4 +1,5 @@
 #include "nic_hw.h"
+#include "nic.h"
 
 void nic_set_hw(struct nic_adapter *adapter) {
   struct nic_tx_ring *tx_ring = &adapter->tx_ring;
@@ -65,5 +66,14 @@ void nic_update_tx_tail(struct nic_adapter *adapter) {
   struct nic_tx_ring *tx_ring = &adapter->tx_ring;
   writel(tx_ring->next_to_use,
          ((void *)adapter->io_addr) + NIC_REG_TO_ADDR(NIC_PCIE_REG_TX_BD_TAIL));
+  netdev_info(adapter->netdev, "tx_ring->next_to_use: %d\n",
+              tx_ring->next_to_use);
   tx_ring->last_sync = tx_ring->next_to_use;
+}
+
+void nic_update_rx_tail(struct nic_adapter *adapter) {
+  struct nic_rx_ring *rx_ring = &adapter->rx_ring;
+  writel(rx_ring->last_sync,
+         ((void *)adapter->io_addr) + NIC_REG_TO_ADDR(NIC_PCIE_REG_RX_BD_TAIL));
+  netdev_info(adapter->netdev, "rx_ring->last_sync: %d\n", rx_ring->last_sync);
 }

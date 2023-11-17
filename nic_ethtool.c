@@ -27,14 +27,14 @@ for nic
 // }
 
 static u32 nic_get_link(struct net_device *netdev) {
-  netdev_info(netdev, "nic_get_link\n");
+  // netdev_info(netdev, "nic_get_link\n");
   return 1;
 }
 
 static int nic_get_link_ksettings(struct net_device *netdev,
                                   struct ethtool_link_ksettings *cmd) {
   u32 supported, advertising;
-  netdev_info(netdev, "nic_get_link_ksettings\n");
+  // netdev_info(netdev, "nic_get_link_ksettings\n");
   supported = SUPPORTED_1000baseT_Full | SUPPORTED_100baseT_Full |
               SUPPORTED_100baseT_Half | SUPPORTED_10baseT_Full |
               SUPPORTED_10baseT_Half | SUPPORTED_Autoneg | SUPPORTED_TP;
